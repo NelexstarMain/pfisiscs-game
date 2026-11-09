@@ -28,6 +28,11 @@ z podpisem „−x V". Zamknięta tama (otwarty przełącznik, przepalony bezpie
 ## Zawory (M3, część)
 Dioda, LED (próg napięcia, jasność od mocy) i bezpiecznik (pęka po ~0,6 s przekroczenia prądu): `World.valves` zmienia γ strefy w locie.
 
+## Źródło AC i oscyloskop
+Źródło AC to serwo, którego poziom docelowy faluje sinusoidalnie (okres 10 s, amplituda ≤ 6 V, żeby szczeliny zostały zanurzone).
+Oscyloskop (`src/ui/scope.ts`) rysuje napięcia węzłów z woltomierzami (albo wszystkich węzłów) z ostatnich 30 s.
+Przykłady: dwie żarówki równolegle (dwa szyby do masy), prąd zmienny.
+
 ## Kalibracja (patrz `src/compile/calibration.ts`)
 Mierzone prawdziwym przepływem netto serwa (`tools/gsweep.ts`, `tools/truth.ts`): szyb G·γ ≈ 77, szczelina G·γ ≈ 88,
 estymator prądu w strefie zaniża o 8% (korekta ZONE_FLOW_BIAS). Zakres rezystorów 7…330 Ω.

@@ -28,7 +28,10 @@ h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: va
 .hint { color: var(--dim); font-size: 12px; padding-left: 16px; }
 p.hint { padding-left: 0; }
 kbd { background: #1f2d3b; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
-#panes { display: flex; min-width: 0; min-height: 0; }
+#center { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#panes { display: flex; min-width: 0; min-height: 0; flex: 1; }
+#scope-wrap { position: relative; height: 130px; border-top: 1px solid var(--line); background: #0c141c; }
+#scope-wrap canvas { display: block; }
 .pane { position: relative; flex: 1; min-width: 0; border-right: 1px solid var(--line); }
 .pane:last-child { border-right: 0; }
 .pane canvas { display: block; }

@@ -2,6 +2,7 @@
 export type ComponentType =
   | 'battery'
   | 'supply'
+  | 'ac'
   | 'ground'
   | 'resistor'
   | 'bulb'
@@ -43,6 +44,15 @@ export const DEFS: Record<ComponentType, ComponentDef> = {
     defaultValue: 9,
     unit: 'V',
     water: 'Pompa z regulatorem: utrzymuje stały poziom wody w zbiorniku, więc napięcie się nie zmienia.',
+  },
+  ac: {
+    type: 'ac',
+    label: 'Źródło AC',
+    ports: 2,
+    portNames: ['−', '+'],
+    defaultValue: 4,
+    unit: 'V',
+    water: 'Przypływ i odpływ: poziom wody w zbiorniku faluje w górę i w dół (okres 10 s), więc prąd zmienia kierunek.',
   },
   ground: {
     type: 'ground',

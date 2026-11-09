@@ -24,6 +24,8 @@ const GAMMA_SWITCH_CLOSED = 8;
 const GAMMA_SWITCH_OPEN = 1e5;
 /** opór otwartego zaworu (dioda, LED, bezpiecznik) [Ω] */
 const R_VALVE = 12;
+/** okres źródła AC [s]; dłuższy niż 5·okres chlapania, patrz docs/M0-notes.md */
+export const AC_PERIOD = 10;
 
 type CondType = 'resistor' | 'bulb' | 'switch' | 'diode' | 'led' | 'fuse';
 interface Cond {
@@ -34,7 +36,7 @@ interface Cond {
 }
 interface Source {
   id: string;
-  type: 'battery' | 'supply';
+  type: 'battery' | 'supply' | 'ac';
   plus: string;
   volts: number;
 }
@@ -94,7 +96,7 @@ export class World {
   tanks = new Map<string, TankInfo>();
   gnd!: TankInfo;
   conds: CondInfo[] = [];
-  sources: { id: string; type: 'battery' | 'supply'; plus: string; volts: number }[] = [];
+  sources: { id: string; type: 'battery' | 'supply' | 'ac'; plus: string; volts: number }[] = [];
   /** wygładzone: napięcie sieci względem GND [V] */
   private vEma = new Map<string, Ema>();
   private iEma = new Map<string, Ema>();
@@ -220,10 +222,11 @@ export class World {
   private servo(dt: number): void {
     const gl = this.rawLevel(this.gnd);
     for (const src of this.sources) {
-      if (src.type !== 'supply') continue;
+      if (src.type === 'battery') continue;
       const t = this.tanks.get(src.plus)!;
       const w = t.rect.x1 - t.rect.x0;
-      const target = gl + src.volts * CAL.cellsPerVolt;
+      const wave = src.type === 'ac' ? Math.sin((2 * Math.PI * this.time) / AC_PERIOD) : 1;
+      const target = gl + src.volts * wave * CAL.cellsPerVolt;
       const e = target - (this.vEma.get(src.plus)!.v * CAL.cellsPerVolt + gl);
       const KP = 4;
       let acc = (this.servoAcc.get(src.id) ?? 0) + KP * e * w * dt;
@@ -294,7 +297,8 @@ export function compile(doc: Doc): World {
         break;
       }
       case 'battery':
-      case 'supply': {
+      case 'supply':
+      case 'ac': {
         const minus = netOf(c.id, 0);
         const plus = netOf(c.id, 1);
         if (minus !== gnd) throw new CompileError('Minus źródła musi być połączony z masą (GND).');
@@ -382,7 +386,7 @@ export function compile(doc: Doc): World {
   // początkowe poziomy: wszystko na poziomie GND, plus źródeł wyżej
   const level = new Map<string, number>();
   for (const n of order) level.set(n, CAL.groundLevel);
-  for (const s of sources) level.set(s.plus, CAL.groundLevel + s.volts * CAL.cellsPerVolt);
+  for (const s of sources) level.set(s.plus, CAL.groundLevel + (s.type === 'ac' ? 0 : s.volts * CAL.cellsPerVolt));
 
   // szerokości zbiorników
   const widthOf = (n: string): number => {

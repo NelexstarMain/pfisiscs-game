@@ -406,6 +406,18 @@ export class SchematicView {
         ctx.textAlign = 'center';
         ctx.fillText('DC', mid, 4);
         break;
+      case 'ac':
+        line(0, 0, mid - 14, 0);
+        line(mid + 14, 0, L, 0);
+        ctx.beginPath();
+        ctx.arc(mid, 0, 14, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(mid - 8, 0);
+        ctx.bezierCurveTo(mid - 5, -9, mid - 2, -9, mid, 0);
+        ctx.bezierCurveTo(mid + 2, 9, mid + 5, 9, mid + 8, 0);
+        ctx.stroke();
+        break;
       case 'ground':
         line(0, 0, 0, 14);
         line(-12, 14, 12, 14);

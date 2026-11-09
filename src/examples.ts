@@ -31,6 +31,45 @@ function defaultOf(t: ComponentType): number {
 }
 
 export const EXAMPLES: Record<string, { label: string; data: DocData }> = {
+  parallel: {
+    label: 'Dwie żarówki równolegle',
+    data: make(
+      [
+        { type: 'supply', x: 4, y: 6 },
+        { type: 'ground', x: 4, y: 10 },
+        { type: 'bulb', x: 12, y: 6, value: 47 },
+        { type: 'bulb', x: 12, y: 10, value: 47 },
+        { type: 'ground', x: 20, y: 12 },
+        { type: 'voltmeter', x: 10, y: 14 },
+      ],
+      [
+        [[0, 0], [1, 0]],
+        [[0, 1], [2, 0]],
+        [[0, 1], [3, 0]],
+        [[2, 1], [4, 0]],
+        [[3, 1], [4, 0]],
+        [[5, 0], [0, 1]],
+      ],
+    ),
+  },
+  ac: {
+    label: 'Prąd zmienny (przypływ i odpływ)',
+    data: make(
+      [
+        { type: 'ac', x: 4, y: 6, value: 4 },
+        { type: 'ground', x: 4, y: 10 },
+        { type: 'resistor', x: 12, y: 6, value: 47 },
+        { type: 'ground', x: 16, y: 10 },
+        { type: 'voltmeter', x: 8, y: 9 },
+      ],
+      [
+        [[0, 0], [1, 0]],
+        [[0, 1], [2, 0]],
+        [[2, 1], [3, 0]],
+        [[4, 0], [0, 1]],
+      ],
+    ),
+  },
   led: {
     label: 'LED z rezystorem',
     data: make(

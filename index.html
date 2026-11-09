@@ -39,10 +39,13 @@
     </header>
     <main>
       <aside id="palette"></aside>
-      <section id="panes">
-        <div class="pane" id="pane-schematic"><canvas id="schematic"></canvas><span class="tag">Schemat</span></div>
-        <div class="pane" id="pane-water"><canvas id="water"></canvas><span class="tag">Świat wody</span></div>
-      </section>
+      <div id="center">
+        <section id="panes">
+          <div class="pane" id="pane-schematic"><canvas id="schematic"></canvas><span class="tag">Schemat</span></div>
+          <div class="pane" id="pane-water"><canvas id="water"></canvas><span class="tag">Świat wody</span></div>
+        </section>
+        <section id="scope-wrap"><canvas id="scope"></canvas><span class="tag">Oscyloskop: napięcia węzłów [V]</span></section>
+      </div>
       <aside id="props">
         <h2 id="props-title">Właściwości</h2>
         <div id="props-body"><p class="hint">Zaznacz element, aby zmienić jego wartość.</p></div>

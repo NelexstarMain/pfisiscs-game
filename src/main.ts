@@ -3,6 +3,7 @@ import { compile, CompileError, type World } from './compile/world';
 import { EXAMPLES } from './examples';
 import { Doc } from './model/doc';
 import { computeNets } from './model/nets';
+import { Scope } from './ui/scope';
 import { SchematicView } from './ui/schematic-view';
 import { WaterView, type NetLabels } from './ui/water-view';
 import { R_MAX, R_MIN } from './compile/calibration';
@@ -18,6 +19,8 @@ const schematic = new SchematicView($<HTMLCanvasElement>('schematic'), doc, {
   onStatus: setStatus,
 });
 const water = new WaterView($<HTMLCanvasElement>('water'));
+const scope = new Scope($<HTMLCanvasElement>('scope'));
+let scopeNets: string[] = [];
 
 let world: World | null = null;
 let running = true;
@@ -55,6 +58,7 @@ function labelsFor(): NetLabels {
     for (const p of nt.ports) {
       const c = doc.components.get(p.slice(0, p.lastIndexOf(':')));
       if (c && (c.type === 'supply' || c.type === 'battery') && p.endsWith(':1')) name = `+${c.value} V`;
+      if (c && c.type === 'ac' && p.endsWith(':1')) name = `AC ±${c.value} V`;
     }
     if (nt.id === nl.groundNet) name = 'Masa (GND)';
     net.set(nt.id, name || `Węzeł ${n++}`);
@@ -70,7 +74,7 @@ function rebuild() {
   try {
     world = compile(doc);
     water.message = '';
-    const volts = [...doc.components.values()].filter((c) => c.type === 'supply' || c.type === 'battery').map((c) => c.value);
+    const volts = [...doc.components.values()].filter((c) => c.type === 'supply' || c.type === 'battery' || c.type === 'ac').map((c) => c.value);
     water.vmax = schematic.vmax = Math.max(5, ...volts);
   } catch (e) {
     world = null;
@@ -79,6 +83,15 @@ function rebuild() {
   water.world = world;
   schematic.world = world;
   water.labels = labelsFor();
+  scope.reset();
+  scopeNets = [];
+  const wd = world;
+  if (wd) {
+    const nl = computeNets(doc);
+    const probed = [...doc.components.values()].filter((c) => c.type === 'voltmeter').map((c) => nl.netOf.get(`${c.id}:0`)!);
+    const pool = probed.length ? probed : [...wd.tanks.keys()].filter((n) => n !== wd.gnd.net);
+    scopeNets = [...new Set(pool)].filter((n) => wd.tanks.has(n)).slice(0, 5);
+  }
 }
 function scheduleRebuild() {
   window.clearTimeout(rebuildTimer);
@@ -236,7 +249,13 @@ function layout() {
     view.resize(Math.max(100, pane.clientWidth), Math.max(100, pane.clientHeight));
   }
 }
-window.addEventListener('resize', layout);
+function layoutScope() {
+  const wrap = $('scope-wrap');
+  scope.resize(Math.max(100, wrap.clientWidth), Math.max(60, wrap.clientHeight));
+}
+const baseLayout = layout;
+window.addEventListener('resize', layoutScope);
+void baseLayout;
 
 let last = performance.now();
 let frame = 0;
@@ -248,11 +267,13 @@ function loop(now: number) {
     const n = Math.round(4 * speed);
     for (let k = 0; k < n; k++) {
       world.step();
+      scope.push(world, scopeNets);
       if (performance.now() - t0 > 14) break; // budżet czasu klatki
     }
   }
   if (!$('pane-schematic').style.display) schematic.draw(dt);
   if (!$('pane-water').style.display) water.draw();
+  if (world) scope.draw(water.vmax, water.labels.net, scopeNets);
   if (++frame % 10 === 0) updateMeasurements();
   requestAnimationFrame(loop);
 }
@@ -268,5 +289,6 @@ try {
 doc.load(JSON.parse(JSON.stringify(startData)));
 rebuild();
 layout();
+layoutScope();
 requestAnimationFrame(loop);
 (window as unknown as { __app: unknown }).__app = { doc, get world() { return world; }, schematic, water };
