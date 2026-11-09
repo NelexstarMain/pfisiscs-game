@@ -51,11 +51,18 @@ Silnik: `src/engine` (PBF 2D, cząstki brzegowe, siatka komórek). Skrypty pomia
     do 0,1%. Ważny błąd po drodze: nadpisywanie prędkości po kroku nie wystarcza (solver ciśnieniowy przepycha wodę przez strefę, „nieszczelny tłok").
     Poprawka: `Sim.forced` narzuca ruch x cząstek w strefie wewnątrz iteracji PBF. Dla κ=4 (τ ≈ 1,7 s) wynik znowu odbiega, więc obowiązuje τ ≥ 3 s.
 
+13. **Zmiana silnika w trakcie M1: opór strefy musi tłumić także przemieszczenie z korekcji ciśnienia** (`Sim.dragPressure`).
+    Wcześniej tłumiona była tylko poprzednia prędkość, więc strefa miała „podłogę przecieku" G ≈ a·dt·H/L ≈ 0,4 (stąd podliniowe τ(γ)
+    z pkt 4 i niemożność zablokowania przepływu). Teraz G ≈ 90/γ w całym zakresie γ = 32…512. Przy okazji w strefie oporowej grawitacja jest
+    mnożona przez ten sam czynnik (inaczej pionowy szyb przecieka). Nowa tabela kalibracji w `src/compile/calibration.ts`.
+    Skutek uboczny: szereg 1,79× (−10,7%), równolegle 0,553 przy γ=64 (+10,5%), 0,533 przy γ=128 (+6,6%), więc testy mają tolerancję ±12%.
+    Zakres rezystorów: ok. 5…275 Ω.
+
 ## Decyzja go/no-go: GO (z warunkami)
 Spełnione: wykładnicze rozładowanie RC (R² ≥ 0,999), szereg (±5%) i równoległość (γ=64: ±1%), dzielnik w ±0,07, sondy σ(V) < 0,5% V_max,
 rezonans LC (±2%), kondensator pływający (±5%), wydajność ≈ 1,5 µs/cząstkę/krok (budżet 2,5–3 tys. cząstek), determinizm i zachowanie N.
 Warunki dla M1+:
-- kalibracja R ↔ γ tabelą (τ(γ) podliniowe), używane γ ≳ 48;
+- kalibracja R ↔ γ tabelą z `calibration.ts` (po poprawce silnika G ≈ 90/γ);
 - GND i wszystkie węzły ≥ 8d nad dnem (szczeliny zawsze zanurzone), szczeliny L=4, H=4;
 - stałe czasowe τ ≥ 3 s, okresy AC i LC ≥ 6 s (chlapanie);
 - poprawka kalibracyjna poziomu węzła z wieloma portami (≈ −1 komórka);

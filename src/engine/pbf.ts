@@ -24,6 +24,8 @@ export class Sim {
   readonly nB: number;
   /** strefy z narzuconą prędkością x (FlowZone): cząstki w strefie nie reagują na ciśnienie w osi x */
   forced: { x0: number; y0: number; x1: number; y1: number; v: number }[] = [];
+  /** opór strefy tłumi też przemieszczenie z korekcji ciśnienia (brak podłogi przecieku) */
+  dragPressure = true;
   /** ściana bez tarcia stycznego (eksperyment: nie zmienia wyniku dzielnika, domyślnie wyłączone) */
   freeSlip = false;
   n: number;
@@ -199,12 +201,17 @@ export class Sim {
       const ci = Math.min(grid.w - 1, Math.max(0, Math.floor(px[i])));
       const cj = Math.min(grid.h - 1, Math.max(0, Math.floor(py[i])));
       const gam = grid.gamma[cj * gw + ci];
-      vy[i] -= g * dt;
+      // najpierw opór strefy (tłumi dotychczasową prędkość), potem grawitacja (nietłumiona),
+      // żeby hydrostatyka w pionowym szybie nie była osłabiona oporem
+      let fg = 1;
       if (gam > 0) {
         const f = 1 / (1 + gam * dt);
         vx[i] *= f;
         vy[i] *= f;
+        // korekcja ciśnienia w strefie jest tłumiona tym samym czynnikiem, więc grawitację też (równowaga hydrostatyczna)
+        if (this.dragPressure) fg = f;
       }
+      vy[i] -= g * dt * fg;
       if (this.forced.length) {
         const z = this.zoneOf(px[i], py[i]);
         if (z >= 0) vx[i] = this.forced[z].v;
@@ -297,11 +304,14 @@ export class Sim {
         dy[i] = sy / rho0;
       }
       for (let i = nB; i < n; i++) {
+        // w strefie oporowej tłumimy też przemieszczenie z korekcji ciśnienia (inaczej opór ma „podłogę przecieku")
+        const gam = grid.gamma[Math.min(grid.h - 1, Math.max(0, Math.floor(py[i]))) * gw + Math.min(grid.w - 1, Math.max(0, Math.floor(px[i])))];
+        const fz = gam > 0 && this.dragPressure ? 1 / (1 + gam * dt) : 1;
         if (this.forced.length && this.zoneOf(px[i], py[i]) >= 0) {
-          qy[i] += dy[i];
+          qy[i] += dy[i] * fz;
         } else {
-          qx[i] += dx[i];
-          qy[i] += dy[i];
+          qx[i] += dx[i] * fz;
+          qy[i] += dy[i] * fz;
         }
         this.collide(i);
       }

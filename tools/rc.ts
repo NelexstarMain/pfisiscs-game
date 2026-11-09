@@ -6,7 +6,7 @@ const t = makeTwoTanks({ wA: w, wB: w, fillA: fA, fillB: fB, inner: 70, gamma, s
 const s = t.sim; s.tune.xsph = 0.04;
 const T: number[] = [], D: number[] = [];
 let acc = 0, c = 0;
-const total = 240 * 40;
+const total = 240 * Number(process.env.SECONDS ?? 40);
 for (let k = 1; k <= total; k++) {
   s.step(); acc += level(t, 'a') - level(t, 'b'); c++;
   if (k % 30 === 0) { T.push(s.time); D.push(acc / c); acc = 0; c = 0; }
