@@ -4,33 +4,28 @@ import { CellGrid } from '../engine/grid';
 import { Sim } from '../engine/pbf';
 import type { Doc } from '../model/doc';
 import { computeNets } from '../model/nets';
-import { portComp } from '../model/types';
-import { CAL, gammaForResistance, SHAFT_G_FACTOR, ZONE_FLOW_BIAS } from './calibration';
+import { calFor, gammaForResistance, SHAFT_G_FACTOR, ZONE_FLOW_BIAS, type Cal } from './calibration';
+import { dcWindows, type DcCond } from './dc';
+import { buildLayout, type Layout, type Rect, type Vessel } from './layout';
+import { cavityOutline, type Seg } from './outline';
 
 export class CompileError extends Error {}
 
-const WALL = 3;
-const GAP = 4; // grubość ściany między zbiornikami = długość szczeliny
-const SLOT_H = 4;
-const RIB = 2;
-const MANIFOLD_Y0 = 3;
-const MANIFOLD_Y1 = 7;
-const PLATE_Y1 = 11; // góra płyty = dno zbiorników
-export const FLOOR_Y = PLATE_Y1;
-/** wysokość, od której tamy między zbiornikami rysujemy dynamicznie (nad stosem szczelin) */
-export const DAM_BASE_Y = FLOOR_Y + 11;
-export const MANIFOLD_ROWS = { y0: MANIFOLD_Y0, y1: MANIFOLD_Y1 };
-const SHAFT_W = 4;
+export type { Rect };
+
 const GAMMA_SWITCH_CLOSED = 8;
 const GAMMA_SWITCH_OPEN = 1e5;
 /** opór otwartego zaworu (dioda, LED, bezpiecznik) [Ω] */
 const R_VALVE = 12;
-/** masa FlowZone dla cewki 1 H (okres LC ≈ 2π·√(m·C) musi być ≥ 6 s) */
-const INDUCTOR_M = 0.25;
-/** pojemność tłoka kondensatora pływającego [komórki²/komórkę] na 1 µF */
+/** masa FlowZone dla cewki 1 H: stała czasowa RL = m·R/50 ≈ 1,6 s przy 47 Ω (widać bezwładność), okres LC ≈ 2π·√(m·C) */
+const INDUCTOR_M = 1.5;
+/** pojemność tłoka kondensatora pływającego [komórki²/komórkę] na 1 µF, razy k */
 const CAP_CELLS_PER_UF = 0.3;
-/** okres źródła AC [s]; dłuższy niż 5·okres chlapania, patrz docs/M0-notes.md */
+/** okres źródła AC [s] dla k=1; rośnie z √k (większe naczynia chlapią wolniej) */
 export const AC_PERIOD = 10;
+export const acPeriod = (k: number) => AC_PERIOD * Math.sqrt(k);
+/** wysokość kieszeni powietrza nad brzegiem naczynia (zgodna z layout.ts) */
+const POCKET = 6;
 
 type CondType = 'resistor' | 'bulb' | 'switch' | 'diode' | 'led' | 'fuse' | 'inductor' | 'capacitor';
 interface Cond {
@@ -46,17 +41,13 @@ interface Source {
   volts: number;
 }
 
-export interface Rect {
-  x0: number;
-  y0: number;
-  x1: number;
-  y1: number;
-}
-
 export interface TankInfo {
   net: string;
-  rect: Rect; // wnętrze zbiornika (od FLOOR_Y w górę)
-  initLevel: number;
+  /** wnętrze naczynia od dna do brzegu */
+  rect: Rect;
+  floorY: number;
+  rimY: number;
+  nomY: number;
 }
 
 export interface CondInfo {
@@ -65,8 +56,9 @@ export interface CondInfo {
   netA: string;
   netB: string;
   zone: Rect;
+  /** 'slot': strefa pozioma (przepływ w osi x), 'shaft': strefa pionowa (przepływ w dół do masy) */
   kind: 'slot' | 'shaft';
-  /** znak prądu: +1, jeśli dodatni przepływ osi (x dla szczeliny, w dół dla szybu) idzie z portu A do B */
+  /** znak prądu: +1, jeśli dodatni przepływ osi (x dla poziomej, w dół dla pionowej) idzie z portu A do B */
   sign: 1 | -1;
 }
 
@@ -83,23 +75,18 @@ class Ema {
   }
 }
 
-export interface Gap {
-  x0: number;
-  x1: number;
-  netL: string;
-  netR: string;
-  /** czy między tymi zbiornikami płynie woda przez element (do rysowania wodospadu) */
-  connected: boolean;
-}
-
 export class World {
   sim!: Sim;
-  columns: { net: string; x0: number; x1: number }[] = [];
-  gaps: Gap[] = [];
+  layout!: Layout;
+  /** kontur jam (cienkie linie do rysowania) */
+  outline: Seg[] = [];
+  k = 1;
+  cal: Cal = calFor(1);
   /** strefy wymuszonego przepływu: cewki i kondensatory pływające */
   flows = new Map<string, { z: FlowZone; sign: 1 | -1 }>();
   W = 0;
   H = 0;
+  /** naczynia (sieci) razem z basenem masy */
   tanks = new Map<string, TankInfo>();
   gnd!: TankInfo;
   conds: CondInfo[] = [];
@@ -113,6 +100,8 @@ export class World {
   private dyn = new Map<string, { type: 'diode' | 'led' | 'fuse'; gammaOn: number; thr: number; a: number; over: number }>();
   /** przepalone bezpieczniki */
   blown = new Set<string>();
+  /** zakresy napięć z solvera DC (do sprawdzania, czy węzeł mieści się w oknie naczynia) */
+  windows = new Map<string, { nom: number; lo: number; hi: number }>();
 
   /** napięcie sieci względem masy [V] */
   voltage(net: string): number {
@@ -132,10 +121,20 @@ export class World {
     return Math.abs((this.voltage(c.netA) - this.voltage(c.netB)) * this.current(compId));
   }
 
-  /** surowy poziom wody w zbiorniku (komórki nad dnem) */
-  rawLevel(t: TankInfo): number {
+  /** liczba cząstek w naczyniu (wnętrze plus kieszeń powietrza nad brzegiem) */
+  private count(t: TankInfo): number {
     const r = t.rect;
-    return this.sim.countIn(r.x0, FLOOR_Y, r.x1, 1e9) / (r.x1 - r.x0);
+    return this.sim.countIn(r.x0, r.y0, r.x1, t.rimY + POCKET);
+  }
+
+  /** poziom wody nad dnem naczynia [komórki] */
+  rawLevel(t: TankInfo): number {
+    return this.count(t) / (t.rect.x1 - t.rect.x0);
+  }
+
+  /** bezwzględna wysokość lustra wody [komórki] (dno + poziom) */
+  surfaceY(t: TankInfo): number {
+    return t.floorY + this.rawLevel(t);
   }
 
   setSwitch(compId: string, closed: boolean): void {
@@ -218,9 +217,9 @@ export class World {
   }
 
   private measure(dt: number): void {
-    const gl = this.rawLevel(this.gnd);
+    const gl = this.surfaceY(this.gnd);
     for (const t of this.tanks.values()) {
-      const v = (this.rawLevel(t) - gl) / CAL.cellsPerVolt;
+      const v = (this.surfaceY(t) - gl) / this.cal.cellsPerVolt;
       let e = this.vEma.get(t.net);
       if (!e) this.vEma.set(t.net, (e = new Ema()));
       e.push(v, dt, 0.1);
@@ -230,7 +229,7 @@ export class World {
       if (fl) {
         let e = this.iEma.get(c.id);
         if (!e) this.iEma.set(c.id, (e = new Ema()));
-        e.push((fl.sign * fl.z.I) / CAL.particlesPerAmpere, dt, 0.1);
+        e.push((fl.sign * fl.z.I) / this.cal.particlesPerAmpere, dt, 0.1);
         continue;
       }
       const z = c.zone;
@@ -242,7 +241,7 @@ export class World {
       const q = c.kind === 'slot' ? mean * crossSection : -mean * crossSection;
       let e = this.iEma.get(c.id);
       if (!e) this.iEma.set(c.id, (e = new Ema()));
-      e.push((c.sign * q) / ZONE_FLOW_BIAS / CAL.particlesPerAmpere, dt, 0.25);
+      e.push((c.sign * q) / ZONE_FLOW_BIAS / this.cal.particlesPerAmpere, dt, 0.25);
     }
   }
 
@@ -259,17 +258,17 @@ export class World {
     return { sum, count };
   }
 
-  /** zasilacz DC: serwo przenosi cząstki między kolektorem masy a zbiornikiem plus */
+  /** zasilacz DC / AC: serwo przenosi cząstki między basenem masy a naczyniem plus */
   private servo(dt: number): void {
-    const gl = this.rawLevel(this.gnd);
+    const gl = this.surfaceY(this.gnd);
     for (const src of this.sources) {
       if (src.type === 'battery') continue;
       const t = this.tanks.get(src.plus)!;
       const w = t.rect.x1 - t.rect.x0;
-      const wave = src.type === 'ac' ? Math.sin((2 * Math.PI * this.time) / AC_PERIOD) : 1;
-      const target = gl + src.volts * wave * CAL.cellsPerVolt;
-      const e = target - (this.vEma.get(src.plus)!.v * CAL.cellsPerVolt + gl);
-      const KP = 4;
+      const wave = src.type === 'ac' ? Math.sin((2 * Math.PI * this.time) / acPeriod(this.k)) : 1;
+      const target = gl + src.volts * wave * this.cal.cellsPerVolt;
+      const e = target - (this.vEma.get(src.plus)!.v * this.cal.cellsPerVolt + gl);
+      const KP = 8;
       let acc = (this.servoAcc.get(src.id) ?? 0) + KP * e * w * dt;
       while (acc >= 1) {
         if (!this.moveParticle(this.gnd, t)) break;
@@ -283,14 +282,14 @@ export class World {
     }
   }
 
-  /** przenosi najwyższą cząstkę ze zbiornika from na powierzchnię zbiornika to */
+  /** przenosi najwyższą cząstkę z naczynia from na powierzchnię naczynia to */
   private moveParticle(from: TankInfo, to: TankInfo): boolean {
     const s = this.sim;
     let best = -1;
     let by = -Infinity;
     const f = from.rect;
     for (let i = s.nB; i < s.n; i++) {
-      if (s.px[i] >= f.x0 && s.px[i] < f.x1 && s.py[i] >= FLOOR_Y && s.py[i] > by) {
+      if (s.px[i] >= f.x0 && s.px[i] < f.x1 && s.py[i] >= f.y0 && s.py[i] > by) {
         by = s.py[i];
         best = i;
       }
@@ -299,20 +298,34 @@ export class World {
     this.netMoves += to === this.gnd ? -1 : 1;
     const r = to.rect;
     const w = r.x1 - r.x0;
-    const surface = FLOOR_Y + this.rawLevel(to);
+    const surface = this.surfaceY(to);
     s.px[best] = r.x0 + 0.5 + ((this.moves++ * 7) % w);
-    s.py[best] = surface + 1.5;
+    s.py[best] = Math.min(surface + 1.5, to.rimY + POCKET - 1);
     s.vx[best] = 0;
     s.vy[best] = 0;
     return true;
   }
   private moves = 0;
-  /** przepływ netto serwa (kolektor→plus = +1, plus→kolektor = −1), niezależna miara prądu w stanie ustalonym */
+  /** przepływ netto serwa (basen→plus = +1, plus→basen = −1), niezależna miara prądu w stanie ustalonym */
   netMoves = 0;
 }
 
+/** szerokość wnętrza naczynia (komórki) dla skali k */
+function baseWidth(k: number, role: 'node' | 'supply' | 'battery'): number {
+  if (role === 'battery') return 8 * k;
+  if (role === 'supply') return 6 * k;
+  return 6 * k;
+}
+
+export interface CompileOptions {
+  /** komórek na wolt (1 = lekki, 2 = średni, 3 = gęsty) */
+  k?: number;
+}
+
 /** Kompiluje dokument do świata fizycznego. Rzuca CompileError z komunikatem po polsku. */
-export function compile(doc: Doc): World {
+export function compile(doc: Doc, opts: CompileOptions = {}): World {
+  const k = opts.k ?? 1;
+  const cal = calFor(k);
   const nl = computeNets(doc);
   if (!nl.groundNet) throw new CompileError('Dodaj masę (GND) do obwodu.');
   const gnd = nl.groundNet;
@@ -414,14 +427,8 @@ export function compile(doc: Doc): World {
   for (const p of comps) order.push(...p);
   const col = new Map(order.map((n, i) => [n, i]));
 
-  // przewody GND i szczeliny sąsiednie
   const gndConds = conds.filter((c) => c.netA === gnd || c.netB === gnd);
   const slotConds = conds.filter((c) => c.netA !== gnd && c.netB !== gnd);
-  const shaftsPerNet = new Map<string, number>();
-  for (const c of gndConds) {
-    const x = c.netA === gnd ? c.netB : c.netA;
-    shaftsPerNet.set(x, (shaftsPerNet.get(x) ?? 0) + 1);
-  }
   const slotsPerGap = new Map<number, number>();
   for (const c of slotConds) {
     const g = Math.min(col.get(c.netA)!, col.get(c.netB)!);
@@ -429,143 +436,131 @@ export function compile(doc: Doc): World {
     if (slotsPerGap.get(g)! > 2) throw new CompileError('Co najwyżej dwa elementy równolegle między tymi samymi węzłami (widok wody).');
   }
 
-  // początkowe poziomy: wszystko na poziomie GND, plus źródeł wyżej
-  const level = new Map<string, number>();
-  for (const n of order) level.set(n, CAL.groundLevel);
-  for (const s of sources) level.set(s.plus, CAL.groundLevel + (s.type === 'ac' ? 0 : s.volts * CAL.cellsPerVolt));
+  // solver DC: tylko do rozmieszczenia naczyń na wysokościach (napięcia w grze liczą się z cząstek)
+  const dcConds: DcCond[] = conds.map((c) => ({ id: c.id, type: c.type, a: c.netA, b: c.netB, value: doc.components.get(c.id)!.value }));
+  // kondensatory do masy (poszerzają naczynie) też liczą się w stanie początkowym: rozładowane, więc węzeł startuje od masy
+  for (const c of doc.components.values()) {
+    if (c.type !== 'capacitor') continue;
+    const a = netOf(c.id, 0);
+    const b = netOf(c.id, 1);
+    if (a !== b && (a === gnd || b === gnd)) dcConds.push({ id: c.id, type: 'capacitor', a, b, value: c.value });
+  }
+  const windows = dcWindows({
+    nets: [gnd, ...order],
+    gnd,
+    conds: dcConds,
+    sources: sources.map((s) => ({ type: s.type, plus: s.plus, volts: s.volts })),
+  });
 
-  // szerokości zbiorników
-  const widthOf = (n: string): number => {
-    let w = 6;
-    const src = sources.find((s) => s.plus === n);
-    if (src) w = Math.max(w, src.type === 'battery' ? 30 : 14);
-    w += widthExtra.get(n) ?? 0;
-    const sh = shaftsPerNet.get(n) ?? 0;
-    if (sh > 0) w = Math.max(w, sh * (SHAFT_W + RIB) - RIB);
-    return w;
-  };
-  const GND_W = 24;
-
-  // współrzędne x
-  const tanks = new Map<string, TankInfo>();
-  let x = WALL;
-  const xs: { net: string; x0: number; x1: number }[] = [];
+  // szerokości naczyń: baza zależna od roli plus pojemność kondensatorów do masy
+  const width = new Map<string, number>();
   for (const n of order) {
-    const w = widthOf(n);
-    xs.push({ net: n, x0: x, x1: x + w });
-    x += w + GAP;
+    const src = sources.find((s) => s.plus === n);
+    const role = src ? (src.type === 'battery' ? 'battery' : 'supply') : 'node';
+    width.set(n, baseWidth(k, role) + (widthExtra.get(n) ?? 0));
   }
-  const gx0 = x;
-  const gx1 = gx0 + GND_W;
-  const W = gx1 + WALL;
-  const maxLevel = Math.max(CAL.groundLevel, ...[...level.values()]);
-  const H = FLOOR_Y + maxLevel + 14;
 
-  const grid = new CellGrid(W, H);
-  grid.fillSolid(0, 0, W, H, 1);
-  const open = (x0: number, y0: number, x1: number, y1: number) => grid.fillSolid(x0, y0, x1, y1, 0);
-  for (const t of xs) {
-    open(t.x0, FLOOR_Y, t.x1, H);
-    tanks.set(t.net, { net: t.net, rect: { x0: t.x0, y0: FLOOR_Y, x1: t.x1, y1: H }, initLevel: level.get(t.net)! });
+  const layout = buildLayout({
+    k,
+    order,
+    win: windows,
+    width,
+    slots: slotConds.map((c) => ({ id: c.id, netA: c.netA, netB: c.netB })),
+    shafts: gndConds.map((c) => ({ id: c.id, net: c.netA === gnd ? c.netB : c.netA })),
+    basinWidth: 14 * k,
+  });
+
+  // siatka: wszystko ściana, wycięte jamy (naczynia, rury, magistrala, basen) i kieszenie powietrza
+  const grid = new CellGrid(layout.W, layout.H);
+  grid.fillSolid(0, 0, layout.W, layout.H, 1);
+  const mask = new Uint8Array(layout.W * layout.H); // 1 = jama (kontur), 2 = powietrze
+  const carve = (r: Rect, kind: 1 | 2) => {
+    grid.fillSolid(r.x0, r.y0, r.x1, r.y1, 0);
+    for (let j = r.y0; j < r.y1; j++) for (let i = r.x0; i < r.x1; i++) mask[j * layout.W + i] = kind;
+  };
+  const all: Vessel[] = [...layout.vessels, layout.basin];
+  for (const v of all) carve(v.rect, 1);
+  for (const pk of layout.pockets) {
+    // kieszeń nad brzegiem: powietrze, bez krawędzi konturu
+    for (let j = pk.y0; j < pk.y1; j++) {
+      for (let i = pk.x0; i < pk.x1; i++) {
+        grid.solid[j * layout.W + i] = 0;
+        mask[j * layout.W + i] = 2;
+      }
+    }
   }
-  open(WALL, MANIFOLD_Y0, gx1, MANIFOLD_Y1);
-  open(gx0, MANIFOLD_Y0, gx1, H);
-  const gndTank: TankInfo = { net: gnd, rect: { x0: gx0, y0: FLOOR_Y, x1: gx1, y1: H }, initLevel: CAL.groundLevel };
-  tanks.set(gnd, gndTank);
+  for (const p of layout.pipes) for (const c of p.cavity) carve(c, 1);
+  if (layout.bus) carve(layout.bus, 1);
 
+  // informacje o elementach i opór stref
+  const pipeOf = new Map(layout.pipes.map((p) => [p.id, p]));
   const info: CondInfo[] = [];
-  // szyby do GND
-  const shaftIdx = new Map<string, number>();
-  const fillRects: Rect[] = [];
-  for (const c of gndConds) {
-    const netX = c.netA === gnd ? c.netB : c.netA;
-    const k = shaftIdx.get(netX) ?? 0;
-    shaftIdx.set(netX, k + 1);
-    const t = xs.find((q) => q.net === netX)!;
-    const sx = t.x0 + k * (SHAFT_W + RIB);
-    open(sx, MANIFOLD_Y1, sx + SHAFT_W, PLATE_Y1);
-    const zone: Rect = { x0: sx, y0: MANIFOLD_Y1, x1: sx + SHAFT_W, y1: PLATE_Y1 };
-    fillRects.push(zone);
-    info.push({ id: c.id, type: c.type, netA: c.netA, netB: c.netB, zone, kind: 'shaft', sign: c.netA === netX ? 1 : -1 });
-  }
-  // szczeliny w ścianach między sąsiednimi kolumnami
-  const gapStack = new Map<number, number>();
-  for (const c of slotConds) {
-    const ca = col.get(c.netA)!;
-    const cb = col.get(c.netB)!;
-    const g = Math.min(ca, cb);
-    const k = gapStack.get(g) ?? 0;
-    gapStack.set(g, k + 1);
-    const left = xs[g];
-    const y0 = FLOOR_Y + k * (SLOT_H + RIB);
-    const zone: Rect = { x0: left.x1, y0, x1: left.x1 + GAP, y1: y0 + SLOT_H };
-    open(zone.x0, zone.y0, zone.x1, zone.y1);
-    info.push({ id: c.id, type: c.type, netA: c.netA, netB: c.netB, zone, kind: 'slot', sign: ca < cb ? 1 : -1 });
-  }
-  // opór stref
-  const flowInit: { ci: CondInfo; value: number }[] = [];
+  const flowInit: { ci: CondInfo; value: number; left: string; right: string }[] = [];
   const dynInit: { id: string; type: 'diode' | 'led' | 'fuse'; gammaOn: number; thr: number }[] = [];
-  for (const ci of info) {
-    const comp = doc.components.get(ci.id)!;
+  for (const c of conds) {
+    const pg = pipeOf.get(c.id)!;
+    const kind: 'slot' | 'shaft' = pg.axis === 'x' ? 'slot' : 'shaft';
+    const sign: 1 | -1 = kind === 'slot' ? (col.get(c.netA)! < col.get(c.netB)! ? 1 : -1) : c.netA !== gnd ? 1 : -1;
+    const ci: CondInfo = { id: c.id, type: c.type, netA: c.netA, netB: c.netB, zone: pg.zone, kind, sign };
+    info.push(ci);
+    const comp = doc.components.get(c.id)!;
     let gamma: number;
     if (ci.type === 'switch') gamma = comp.value >= 0.5 ? GAMMA_SWITCH_CLOSED : GAMMA_SWITCH_OPEN;
     else if (ci.type === 'inductor' || ci.type === 'capacitor') {
-      flowInit.push({ ci, value: comp.value });
+      const net = kind === 'shaft' ? (c.netA === gnd ? c.netB : c.netA) : '';
+      flowInit.push({ ci, value: comp.value, left: kind === 'slot' ? pg.left! : net, right: kind === 'slot' ? pg.right! : gnd });
       gamma = 0;
     } else if (ci.type === 'diode' || ci.type === 'led' || ci.type === 'fuse') {
-      const on = gammaForResistance(ci.kind === 'shaft' ? R_VALVE * SHAFT_G_FACTOR : R_VALVE);
+      const on = gammaForResistance(kind === 'shaft' ? R_VALVE * SHAFT_G_FACTOR : R_VALVE);
       dynInit.push({ id: ci.id, type: ci.type, gammaOn: on, thr: comp.value });
       gamma = 1e5;
-    } else gamma = gammaForResistance(ci.kind === 'shaft' ? comp.value * SHAFT_G_FACTOR : comp.value);
-    grid.setGamma(ci.zone.x0, ci.zone.y0, ci.zone.x1, ci.zone.y1, gamma);
+    } else gamma = gammaForResistance(kind === 'shaft' ? comp.value * SHAFT_G_FACTOR : comp.value);
+    grid.setGamma(pg.zone.x0, pg.zone.y0, pg.zone.x1, pg.zone.y1, gamma);
   }
 
-  // cząstki: zbiorniki do poziomu, szyby, kolektor, kolumna GND
-  let cells = 0;
-  for (const t of xs) cells += (t.x1 - t.x0) * Math.ceil(level.get(t.net)!);
-  cells += (gx1 - WALL) * (MANIFOLD_Y1 - MANIFOLD_Y0) + GND_W * (FLOOR_Y - MANIFOLD_Y1 + Math.ceil(CAL.groundLevel));
-  cells += fillRects.length * SHAFT_W * (PLATE_Y1 - MANIFOLD_Y1);
-  const sim = new Sim(grid, cells + 400);
+  // cząstki: naczynia do nominalnego lustra, rury i magistrala w całości, basen do poziomu masy
+  const fill = new Uint8Array(layout.W * layout.H);
+  const mark = (r: Rect, yTop?: number) => {
+    const top = yTop === undefined ? r.y1 : Math.min(r.y1, Math.round(yTop));
+    for (let j = r.y0; j < top; j++) for (let i = r.x0; i < r.x1; i++) fill[j * layout.W + i] = 1;
+  };
+  for (const v of all) mark(v.rect, v.nomY);
+  for (const p of layout.pipes) for (const c of p.cavity) mark(c);
+  if (layout.bus) mark(layout.bus);
+  let nFluid = 0;
+  for (let q = 0; q < fill.length; q++) nFluid += fill[q];
+  const sim = new Sim(grid, nFluid + 200);
   sim.tune.xsph = 0.04;
-  for (const t of xs) sim.addFluid(t.x0, FLOOR_Y, t.x1, FLOOR_Y + Math.ceil(level.get(t.net)!));
-  sim.addFluid(WALL, MANIFOLD_Y0, gx1, MANIFOLD_Y1);
-  for (const z of fillRects) sim.addFluid(z.x0, z.y0, z.x1, z.y1);
-  sim.addFluid(gx0, MANIFOLD_Y1, gx1, FLOOR_Y + Math.ceil(CAL.groundLevel));
+  for (let j = 0; j < layout.H; j++) {
+    for (let i = 0; i < layout.W; i++) if (fill[j * layout.W + i]) sim.addFluid(i, j, i + 1, j + 1);
+  }
 
   const w = new World();
   w.sim = sim;
-  w.W = W;
-  w.H = H;
-  w.tanks = tanks;
+  w.layout = layout;
+  w.k = k;
+  w.cal = cal;
+  w.W = layout.W;
+  w.H = layout.H;
+  w.windows = windows;
+  w.outline = cavityOutline(mask, layout.W, layout.H);
+  const toTank = (v: Vessel): TankInfo => ({ net: v.net, rect: v.rect, floorY: v.floorY, rimY: v.rimY, nomY: v.nomY });
+  for (const v of layout.vessels) w.tanks.set(v.net, toTank(v));
+  const gndTank = toTank({ ...layout.basin, net: gnd });
+  w.tanks.set(gnd, gndTank);
   w.gnd = gndTank;
   w.conds = info;
   w.sources = sources;
-  w.columns = xs;
-  w.gaps = xs.map((t, k) => {
-    const last = k === xs.length - 1;
-    return {
-      x0: t.x1,
-      x1: last ? gx0 : xs[k + 1].x0,
-      netL: t.net,
-      netR: last ? gnd : xs[k + 1].net,
-      connected: last
-        ? gndConds.some((c) => c.netA === t.net || c.netB === t.net)
-        : slotConds.some((c) => Math.min(col.get(c.netA)!, col.get(c.netB)!) === k),
-    };
-  });
-  for (const { ci, value } of flowInit) {
+  for (const { ci, value, left, right } of flowInit) {
     const hz = ci.kind === 'slot' ? ci.zone.y1 - ci.zone.y0 : ci.zone.x1 - ci.zone.x0;
-    const [netL, netR] =
-      ci.kind === 'slot' ? (ci.sign === 1 ? [ci.netA, ci.netB] : [ci.netB, ci.netA]) : [ci.netA === gnd ? ci.netB : ci.netA, gnd];
-    const head = () => w.rawLevel(w.tanks.get(netL)!) - w.rawLevel(w.tanks.get(netR)!);
+    const head = () => w.surfaceY(w.tanks.get(left)!) - w.surfaceY(w.tanks.get(right)!);
+    const axis = ci.kind === 'slot' ? ('x' as const) : ('y' as const);
     const params =
       ci.type === 'inductor'
-        ? { m: INDUCTOR_M * Math.max(0.05, value), k: 0, c: 0.05, axis: ci.kind === 'slot' ? ('x' as const) : ('y' as const) }
-        : { m: 0.02, k: hz / Math.max(0.5, value * CAP_CELLS_PER_UF), c: 2, axis: ci.kind === 'slot' ? ('x' as const) : ('y' as const) };
+        ? { m: INDUCTOR_M * Math.max(0.05, value), k: 0, c: 0.05, axis }
+        : { m: 0.02, k: hz / Math.max(0.5, value * CAP_CELLS_PER_UF * k), c: 2, axis };
     w.flows.set(ci.id, { z: new FlowZone(sim, ci.zone, params, head), sign: ci.sign });
   }
   w.registerValves(dynInit);
   return w;
 }
-
-export { portComp };

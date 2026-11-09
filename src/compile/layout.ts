@@ -12,6 +12,8 @@ export interface Rect {
 
 export interface Win {
   nom: number;
+  /** napięcie początkowe (od niego startuje wypełnienie); domyślnie nom */
+  init?: number;
   lo: number;
   hi: number;
 }
@@ -120,7 +122,7 @@ export function buildLayout(inp: LayoutInput): Layout {
     const floorY = Math.round(yOf(w.lo) - portTop - 3 - k);
     let rimY = Math.round(yOf(w.hi) + 3 * k + 4);
     if (rimY - floorY < 12) rimY = floorY + 12;
-    return { net, rect: rect(xs[i].x0, floorY, xs[i].x1, rimY), floorY, rimY, nomY: yOf(w.nom) };
+    return { net, rect: rect(xs[i].x0, floorY, xs[i].x1, rimY), floorY, rimY, nomY: yOf(w.init ?? w.nom) };
   });
 
   const minFloor = vessels.length ? Math.min(...vessels.map((v) => v.floorY)) : 0;

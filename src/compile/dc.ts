@@ -31,8 +31,10 @@ export interface DcInput {
 }
 
 export interface Window {
-  /** napięcie nominalne (przełączniki jak ustawione, bezpieczniki całe, AC w zerze) */
+  /** napięcie ustalone (przełączniki jak ustawione, bezpieczniki całe, AC w zerze, cewki zwarte, kondensatory rozwarte) */
   nom: number;
+  /** napięcie w chwili włączenia: kondensatory rozładowane (zwarte), cewki bez prądu (rozwarte); od tego poziomu startuje woda */
+  init: number;
   lo: number;
   hi: number;
 }
@@ -41,6 +43,8 @@ export interface Window {
 export const R_VALVE = 12;
 const R_SWITCH_CLOSED = 1;
 const R_SHORT = 1;
+/** zwarcie kondensatora w chwili włączenia (0 V na nim) */
+const R_CAP_INIT = 0.001;
 const GMIN = 1e-9;
 const MAX_TOGGLES = 6;
 
@@ -50,6 +54,8 @@ interface State {
   fuseBlown: Map<string, boolean>;
   /** znak AC: +1, −1 albo 0 (nominalnie) dla kolejnych źródeł AC */
   acSign: number[];
+  /** chwila włączenia: kondensator = zwarcie (0 V), cewka = rozwarcie (0 A) */
+  initial?: boolean;
 }
 
 /** rozwiązuje układ równań Gx = b (eliminacja Gaussa z wyborem elementu głównego) */
@@ -128,10 +134,11 @@ export function solveState(input: DcInput, st: State): Map<string, number> {
         if (!st.fuseBlown.get(c.id)) stamp(c.a, c.b, 1 / R_VALVE, 0);
         break;
       case 'inductor':
-        stamp(c.a, c.b, 1 / R_SHORT, 0);
+        if (!st.initial) stamp(c.a, c.b, 1 / R_SHORT, 0);
         break;
       case 'capacitor':
-        break; // rozwarty w stanie ustalonym
+        if (st.initial) stamp(c.a, c.b, 1 / R_CAP_INIT, 0);
+        break; // w stanie ustalonym rozwarty
     }
   }
   const x = m ? gauss(G, rhs) : [];
@@ -146,13 +153,14 @@ function diodeCurrent(c: DcCond, v: Map<string, number>): number {
 }
 
 /** stan nominalny: przełączniki jak ustawione, bezpieczniki całe, AC w zerze, diody z iteracji */
-export function solveNominal(input: DcInput): Map<string, number> {
+export function solveNominal(input: DcInput, initial = false): Map<string, number> {
   const diodes = input.conds.filter((c) => c.type === 'diode' || c.type === 'led');
   const st: State = {
     switchClosed: new Map(),
     diodeOn: new Map(diodes.map((d) => [d.id, true])),
     fuseBlown: new Map(),
     acSign: [],
+    initial,
   };
   let v = solveState(input, st);
   for (let it = 0; it < 8; it++) {
@@ -176,10 +184,12 @@ export function solveNominal(input: DcInput): Map<string, number> {
 /** zakresy napięć sieci w scenariuszach pracy (do wyznaczenia wysokości ścianek naczyń) */
 export function dcWindows(input: DcInput): Map<string, Window> {
   const nominal = solveNominal(input);
+  const initial = solveNominal(input, true);
   const win = new Map<string, Window>();
   for (const n of input.nets) {
     const v = nominal.get(n) ?? 0;
-    win.set(n, { nom: v, lo: v, hi: v });
+    const v0 = initial.get(n) ?? 0;
+    win.set(n, { nom: v, init: v0, lo: Math.min(v, v0), hi: Math.max(v, v0) });
   }
   const upd = (v: Map<string, number>) => {
     for (const [n, x] of v) {
@@ -212,6 +222,7 @@ export function dcWindows(input: DcInput): Map<string, Window> {
       else st.acSign[Number(t.id)] = on ? 1 : -1;
     });
     upd(solveState(input, st));
+    upd(solveState(input, { ...st, initial: true }));
   }
   // bateria to skończony zbiornik: okno sięga do pełnego rozładowania (0 V)
   for (const s of input.sources) {

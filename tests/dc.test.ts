@@ -54,4 +54,19 @@ describe('solver DC do rozmieszczania naczyń', () => {
     expect(w.get('M')!.nom).toBeCloseTo(9, 2); // cewka zwiera P z M
     expect(w.get('N')!.nom).toBeCloseTo(0, 3); // kondensator rozwarty, N wisi na gmin
   });
+
+  it('stan początkowy: kondensator do masy rozładowany, cewka bez prądu', () => {
+    // zasilacz — R — węzeł M — kondensator do masy: ustalone 9 V, ale na starcie 0 V
+    const rc = base([{ id: 'r', type: 'resistor', a: 'P', b: 'M', value: 47 }, { id: 'c', type: 'capacitor', a: 'M', b: 'G', value: 10 }]);
+    const w = dcWindows(rc).get('M')!;
+    expect(w.nom).toBeCloseTo(9, 2);
+    expect(w.init).toBeCloseTo(0, 2);
+    expect(w.lo).toBeCloseTo(0, 2);
+    expect(w.hi).toBeCloseTo(9, 2);
+    // cewka: ustalone 9 V za nią, na starcie 0 V (otwarta)
+    const rl = base([{ id: 'l', type: 'inductor', a: 'P', b: 'M', value: 1 }, { id: 'r', type: 'resistor', a: 'M', b: 'G', value: 47 }]);
+    const wl = dcWindows(rl).get('M')!;
+    expect(wl.nom).toBeGreaterThan(8);
+    expect(wl.init).toBeCloseTo(0, 2);
+  });
 });

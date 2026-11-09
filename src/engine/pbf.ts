@@ -26,6 +26,8 @@ export class Sim {
   forced: { x0: number; y0: number; x1: number; y1: number; v: number; axis?: 'x' | 'y' }[] = [];
   /** opór strefy tłumi też przemieszczenie z korekcji ciśnienia (brak podłogi przecieku) */
   dragPressure = true;
+  /** ściana bez tarcia stycznego: od cząstek brzegowych bierzemy tylko składową wzdłuż normalnej (bez zakleszczania w wąskich rurach) */
+  freeSlip = true;
   n: number;
   /** gęstość spoczynkowa policzona z idealnej siatki */
   readonly rho0: number;
@@ -261,6 +263,7 @@ export class Sim {
     const rho0 = this.rho0;
     const invRho0 = 1 / rho0;
     const { iterations, epsilon, scorrK, xsph } = this.tune;
+    const freeSlip = this.freeSlip;
     const W0 = poly6(0);
     for (let it = 0; it < iterations; it++) {
       // 1. gęstość i gradienty: każda para płyn-płyn liczona raz i dodawana do obu cząstek
@@ -323,6 +326,11 @@ export class Sim {
         const yi = qy[i];
         let sx = aSx[i];
         let sy = aSy[i];
+        // wkład ścian i normalna ściany (gradient gęstości brzegu) do projekcji bez tarcia stycznego
+        let bx = 0;
+        let by = 0;
+        let nxw = 0;
+        let nyw = 0;
         for (let s = 0; s < cnt; s++) {
           const j = nbr[base + s];
           const wall = j < nB;
@@ -341,11 +349,36 @@ export class Sim {
           const k = ((lsum + sc) * SPIKY * (h - r) * (h - r)) / r;
           const kx = k * ddx;
           const ky = k * ddy;
-          sx += kx;
-          sy += ky;
-          if (!wall) {
+          if (wall) {
+            if (freeSlip) {
+              bx += kx;
+              by += ky;
+              const dd = H2 - r2;
+              const wgt = dd > 0 ? dd * dd * dd : 0;
+              nxw += ddx * wgt;
+              nyw += ddy * wgt;
+            } else {
+              sx += kx;
+              sy += ky;
+            }
+          } else {
+            sx += kx;
+            sy += ky;
             aSx[j] -= kx;
             aSy[j] -= ky;
+          }
+        }
+        if (bx !== 0 || by !== 0) {
+          const nl = Math.sqrt(nxw * nxw + nyw * nyw);
+          if (nl > 1e-12) {
+            const ux = nxw / nl;
+            const uy = nyw / nl;
+            const proj = bx * ux + by * uy;
+            sx += proj * ux;
+            sy += proj * uy;
+          } else {
+            sx += bx;
+            sy += by;
           }
         }
         aSx[i] = sx;

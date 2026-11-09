@@ -14,6 +14,14 @@ export const CAL = {
   groundLevel: 12,
 };
 
+/** Kalibracja dla skali k (komórek na wolt): R nie zależy od k, prąd i napięcie skalują się z k. */
+export interface Cal {
+  k: number;
+  particlesPerAmpere: number;
+  cellsPerVolt: number;
+}
+export const calFor = (k: number): Cal => ({ k, particlesPerAmpere: 50 * k, cellsPerVolt: k });
+
 /** punkty (γ, G) szczeliny poziomej, posortowane rosnąco po γ (G ≈ 88/γ dla γ ≥ 16) */
 const TABLE: [number, number][] = [
   [8, 9.5],
@@ -44,10 +52,10 @@ export function gammaForConductance(G: number): number {
 }
 
 /**
- * Pomiary prawdziwej przewodności szybu pionowego (tools/gsweep.ts, przepływ netto serwa): G·γ ≈ 77 ± 3 dla γ ≥ 24,
+ * Pionowa rura do masy (nowy układ wiszących naczyń, tools/truth.ts): G·γ ≈ 100, czyli ok. 1,15 razy więcej niż szczelina z tabeli (G·γ ≈ 88),
  * czyli R_eff ≈ 0,65·γ Ω. Szczelina pozioma ma G·γ ≈ 88 (tools/rc.ts), więc szyb przewodzi o ok. 12% gorzej.
  */
-export const SHAFT_G_FACTOR = 0.88;
+export const SHAFT_G_FACTOR = 1.15;
 
 /** Estymator prądu (średnia prędkość w strefie × przekrój) zaniża o ok. 8% względem przepływu netto serwa. */
 export const ZONE_FLOW_BIAS = 0.92;

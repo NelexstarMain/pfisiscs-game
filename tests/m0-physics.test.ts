@@ -11,7 +11,8 @@ describe('M0.2 hydrostatyka i podstawy', () => {
   it('cząstki zostają w domenie, N zachowane, stan ustala się', () => {
     const t = makeTwoTanks({ wA: 12, wB: 12, fillA: 20, fillB: 20 });
     const n0 = t.sim.fluidCount;
-    run(t.sim, 3);
+    // bez tarcia o ściany (freeSlip) woda chlapie dłużej, więc dajemy jej 6 s na osiadnięcie
+    run(t.sim, 6);
     expect(t.sim.fluidCount).toBe(n0);
     expect(t.sim.lost).toBe(0);
     // prędkość po osiadnięciu mała względem sqrt(g H)
