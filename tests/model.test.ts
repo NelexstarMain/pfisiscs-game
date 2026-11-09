@@ -101,4 +101,26 @@ describe('model dokumentu', () => {
     d.undo();
     expect(seen).toEqual(['add', 'value', 'value']);
   });
+
+  it('wszystkie symbole masy tworzą jedną sieć', () => {
+    const { d, add } = build();
+    const g1 = add('ground', 0, 0);
+    const g2 = add('ground', 4, 0);
+    const r = add('resistor', 8, 0);
+    d.apply(d.makeWire(`${r}:0`, `${g2}:0`));
+    const nl = computeNets(d);
+    expect(nl.netOf.get(`${g1}:0`)).toBe(nl.netOf.get(`${g2}:0`));
+    expect(nl.netOf.get(`${r}:0`)).toBe(nl.netOf.get(`${g1}:0`));
+    expect(nl.groundNet).toBe(nl.netOf.get(`${g1}:0`));
+  });
+
+  it('load zastępuje dokument i czyści historię', () => {
+    const { d, add } = build();
+    add('resistor', 0, 0);
+    const other = new Doc();
+    other.apply(other.makeAdd('battery', { x: 1, y: 1 }));
+    d.load(other.toJSON());
+    expect([...d.components.values()].map((c) => c.type)).toEqual(['battery']);
+    expect(d.undo()).toBe(false);
+  });
 });

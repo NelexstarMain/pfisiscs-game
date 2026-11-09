@@ -149,6 +149,17 @@ export class Doc {
     return out;
   }
 
+  /** Zastępuje całą zawartość (przykłady, wczytanie pliku) i czyści historię. */
+  load(data: DocData): void {
+    const fresh = Doc.fromJSON(data);
+    this.components = fresh.components;
+    this.wires = fresh.wires;
+    this.nextId = fresh.nextId;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.emit({ kind: 'batch', cmds: [] });
+  }
+
   toJSON(): DocData {
     return {
       version: 1,

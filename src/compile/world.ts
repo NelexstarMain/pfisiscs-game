@@ -4,7 +4,7 @@ import { Sim } from '../engine/pbf';
 import type { Doc } from '../model/doc';
 import { computeNets } from '../model/nets';
 import { portComp } from '../model/types';
-import { CAL, gammaForResistance, SHAFT_G_FACTOR } from './calibration';
+import { CAL, gammaForResistance, SHAFT_G_FACTOR, ZONE_FLOW_BIAS } from './calibration';
 
 export class CompileError extends Error {}
 
@@ -140,7 +140,7 @@ export class World {
       const q = c.kind === 'slot' ? mean * crossSection : -mean * crossSection;
       let e = this.iEma.get(c.id);
       if (!e) this.iEma.set(c.id, (e = new Ema()));
-      e.push((c.sign * q) / CAL.particlesPerAmpere, dt, 0.25);
+      e.push((c.sign * q) / ZONE_FLOW_BIAS / CAL.particlesPerAmpere, dt, 0.25);
     }
   }
 
@@ -193,6 +193,7 @@ export class World {
       }
     }
     if (best < 0) return false;
+    this.netMoves += to === this.gnd ? -1 : 1;
     const r = to.rect;
     const w = r.x1 - r.x0;
     const surface = FLOOR_Y + this.rawLevel(to);
@@ -203,6 +204,8 @@ export class World {
     return true;
   }
   private moves = 0;
+  /** przepływ netto serwa (kolektor→plus = +1, plus→kolektor = −1), niezależna miara prądu w stanie ustalonym */
+  netMoves = 0;
 }
 
 /** Kompiluje dokument do świata fizycznego. Rzuca CompileError z komunikatem po polsku. */

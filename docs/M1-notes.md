@@ -15,5 +15,12 @@
 - Minus źródła musi być na masie. Kondensator tylko do masy (pływający wymaga `FlowZone`, M3).
 - Zasilacz DC utrzymuje napięcie serwem, bateria (zbiornik) się rozładowuje.
 
+## UI (M1)
+Edytor schematu (paleta, przeciąganie, przewody, obrót, undo/redo, dwuklik na przełączniku), widok wody z polem potencjału,
+panel właściwości, przykłady (rezystor, dzielnik, żarówka z przełącznikiem, RC), zapis/odczyt JSON. Uruchomienie: `npm run dev`.
+Gra ma uczyć intuicji, nie dokładności: kalibracja jest na poziomie ok. ±6%, więcej nie trzeba.
+
 ## Kalibracja (patrz `src/compile/calibration.ts`)
+Mierzone prawdziwym przepływem netto serwa (`tools/gsweep.ts`, `tools/truth.ts`): szyb G·γ ≈ 77, szczelina G·γ ≈ 88,
+estymator prądu w strefie zaniża o 8% (korekta ZONE_FLOW_BIAS). Zakres rezystorów 7…330 Ω.
 1 V = 1 komórka wysokości, 1 A = 50 cząstek/s, GND na poziomie 12. Szyb pionowy ma współczynnik 0,87 względem szczeliny poziomej.

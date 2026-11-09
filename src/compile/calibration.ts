@@ -14,15 +14,16 @@ export const CAL = {
   groundLevel: 12,
 };
 
-/** punkty (γ, G) posortowane rosnąco po γ */
+/** punkty (γ, G) szczeliny poziomej, posortowane rosnąco po γ (G ≈ 88/γ dla γ ≥ 16) */
 const TABLE: [number, number][] = [
-  [8, 11.0],
+  [8, 9.5],
   [16, 6.2],
-  [32, 2.55],
-  [64, 1.29],
-  [128, 0.708],
-  [256, 0.337],
-  [512, 0.182],
+  [32, 2.65],
+  [64, 1.34],
+  [128, 0.69],
+  [256, 0.34],
+  [512, 0.17],
+  [1024, 0.085],
 ];
 
 /** γ potrzebne, żeby szczelina miała przewodność G (interpolacja log-log, monotoniczna) */
@@ -42,36 +43,21 @@ export function gammaForConductance(G: number): number {
   return last[0];
 }
 
+/**
+ * Pomiary prawdziwej przewodności szybu pionowego (tools/gsweep.ts, przepływ netto serwa): G·γ ≈ 77 ± 3 dla γ ≥ 24,
+ * czyli R_eff ≈ 0,65·γ Ω. Szczelina pozioma ma G·γ ≈ 88 (tools/rc.ts), więc szyb przewodzi o ok. 12% gorzej.
+ */
+export const SHAFT_G_FACTOR = 0.88;
+
+/** Estymator prądu (średnia prędkość w strefie × przekrój) zaniża o ok. 8% względem przepływu netto serwa. */
+export const ZONE_FLOW_BIAS = 0.92;
+
 /** γ dla rezystancji R [Ω]: G = particlesPerAmpere / (R · cellsPerVolt) */
 export function gammaForResistance(R: number): number {
   const G = CAL.particlesPerAmpere / (Math.max(R, 1e-6) * CAL.cellsPerVolt);
   return gammaForConductance(G);
 }
 
-/** rezystancja [Ω] realizowana przez γ (odwrotność gammaForResistance w zakresie tabeli) */
-export function resistanceForGamma(gamma: number): number {
-  const first = TABLE[0];
-  const last = TABLE[TABLE.length - 1];
-  if (gamma <= first[0]) return CAL.particlesPerAmpere / first[1];
-  if (gamma >= last[0]) return CAL.particlesPerAmpere / last[1];
-  for (let i = 0; i < TABLE.length - 1; i++) {
-    const [g0, c0] = TABLE[i];
-    const [g1, c1] = TABLE[i + 1];
-    if (gamma >= g0 && gamma <= g1) {
-      const t = (Math.log(gamma) - Math.log(g0)) / (Math.log(g1) - Math.log(g0));
-      const G = Math.exp(Math.log(c0) + t * (Math.log(c1) - Math.log(c0)));
-      return CAL.particlesPerAmpere / G;
-    }
-  }
-  return CAL.particlesPerAmpere / last[1];
-}
-
-/** zakres rezystancji wspieranych przez symulację [Ω] */
-export const R_MIN = CAL.particlesPerAmpere / TABLE[0][1];
-export const R_MAX = CAL.particlesPerAmpere / TABLE[TABLE.length - 1][1];
-
-/**
- * Szyb pionowy do masy daje o ok. 10–15% niższy zmierzony prąd niż wynika z V/R przy tym samym γ
- * (pomiar: tools/circuit.ts, prąd w strefie vs V/R dla R = 22…220 Ω). Korygujemy rezystancję przed przeliczeniem na γ.
- */
-export const SHAFT_G_FACTOR = 0.87;
+/** Zakres rezystancji [Ω] realizowanych w symulacji (dolna granica: opór wlotu/wylotu szybu przy małych γ). */
+export const R_MIN = 7;
+export const R_MAX = 330;

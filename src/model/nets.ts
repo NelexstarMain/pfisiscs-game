@@ -35,6 +35,18 @@ export function computeNets(doc: Doc): NetList {
     const rb = find(w.b);
     if (ra !== rb) parent.set(ra, rb);
   }
+  // wszystkie symbole masy to ta sama sieć
+  let firstGnd: PortKey | null = null;
+  for (const c of doc.components.values()) {
+    if (c.type !== 'ground') continue;
+    const k = `${c.id}:0`;
+    if (firstGnd === null) firstGnd = k;
+    else {
+      const ra = find(firstGnd);
+      const rb = find(k);
+      if (ra !== rb) parent.set(ra, rb);
+    }
+  }
   const groups = new Map<PortKey, PortKey[]>();
   for (const p of parent.keys()) {
     const r = find(p);
