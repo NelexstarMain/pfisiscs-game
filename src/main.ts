@@ -1,5 +1,6 @@
 import { ALL_TYPES, DEFS, type ComponentType } from './components/defs';
 import { compile, CompileError, type World } from './compile/world';
+import { CHALLENGES, type Challenge } from './challenges';
 import { EXAMPLES } from './examples';
 import { Doc } from './model/doc';
 import { computeNets } from './model/nets';
@@ -26,6 +27,89 @@ let world: World | null = null;
 let running = true;
 let speed = 2;
 let rebuildTimer = 0;
+
+// ---------- zadania ----------
+let current: Challenge | null = null;
+let mem: Record<string, number> = {};
+let hold = 0;
+let lastTime = 0;
+let solved = false;
+let showHint = false;
+function loadDone(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem('pfisiscs-done') ?? '[]');
+  } catch {
+    return [];
+  }
+}
+const done = new Set<string>(loadDone());
+function saveDone() {
+  try {
+    localStorage.setItem('pfisiscs-done', JSON.stringify([...done]));
+  } catch {
+    /* brak dostępu do localStorage */
+  }
+}
+const chSel = $<HTMLSelectElement>('challenges');
+function fillChallenges() {
+  chSel.length = 1;
+  for (const c of CHALLENGES) chSel.add(new Option(`${done.has(c.id) ? '✔ ' : ''}${c.title}`, c.id));
+}
+fillChallenges();
+function resetTask() {
+  mem = {};
+  hold = 0;
+  lastTime = 0;
+  solved = false;
+  renderTask();
+}
+function renderTask() {
+  const el = $('task');
+  if (!current) {
+    el.innerHTML = '';
+    return;
+  }
+  const next = CHALLENGES[CHALLENGES.findIndex((c) => c.id === current!.id) + 1];
+  el.innerHTML = `<div class="task ${solved ? 'solved' : ''}"><b>${current.title}</b><p>${current.text}</p>
+    <div class="bar"><i id="task-bar" style="width:${solved ? 100 : 0}%"></i></div>
+    ${solved ? '<p class="ok">✔ Brawo! Zadanie zaliczone.</p>' : ''}
+    <button id="hint-btn">Podpowiedź</button>${solved && next ? '<button id="next-btn">Następne zadanie →</button>' : ''}
+    <p id="hint-text" ${showHint ? '' : 'hidden'}>${current.hint}</p></div>`;
+  $('hint-btn').addEventListener('click', () => {
+    showHint = !showHint;
+    $('hint-text').toggleAttribute('hidden', !showHint);
+  });
+  document.getElementById('next-btn')?.addEventListener('click', () => startChallenge(next.id));
+}
+function startChallenge(id: string) {
+  const ch = CHALLENGES.find((c) => c.id === id) ?? null;
+  current = ch;
+  showHint = false;
+  if (ch) {
+    doc.load(JSON.parse(JSON.stringify(ch.start)));
+    schematic.select(null);
+    setStatus(`Zadanie: ${ch.title}`);
+  }
+  chSel.value = '';
+  rebuild();
+}
+function tickTask() {
+  if (!current || !world || solved) return;
+  const dt = world.time - lastTime;
+  lastTime = world.time;
+  const ok = current.goal({ world, doc, time: world.time }, mem);
+  hold = ok ? hold + Math.max(0, dt) : 0;
+  const bar = document.getElementById('task-bar');
+  if (bar) bar.style.width = `${current.hold > 0 ? Math.min(100, (hold / current.hold) * 100) : ok ? 100 : 0}%`;
+  if (ok && hold >= current.hold) {
+    solved = true;
+    done.add(current.id);
+    saveDone();
+    fillChallenges();
+    renderTask();
+  }
+}
+chSel.addEventListener('change', () => chSel.value && startChallenge(chSel.value));
 
 // ---------- paleta ----------
 const palette = $('palette');
@@ -84,6 +168,7 @@ function rebuild() {
   schematic.world = world;
   water.labels = labelsFor();
   scope.reset();
+  resetTask();
   scopeNets = [];
   const wd = world;
   if (wd) {
@@ -309,6 +394,7 @@ function loop(now: number) {
   }
   if (!$('pane-schematic').style.display) schematic.draw(dt);
   if (!$('pane-water').style.display) water.draw();
+  tickTask();
   if (world) scope.draw(water.vmax, water.labels.net, scopeNets);
   if (++frame % 10 === 0) updateMeasurements();
   requestAnimationFrame(loop);

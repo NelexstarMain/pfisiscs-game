@@ -44,3 +44,13 @@ kbd { background: #1f2d3b; border: 1px solid var(--line); border-radius: 4px; pa
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } aside { display: none; } }
 
 #props input[type="range"] { width: 100%; margin: 8px 0 2px; accent-color: var(--water); }
+
+#task:empty { display: none; }
+.task { background: linear-gradient(#b27a3a, #8b5a28); border: 1px solid #4a2e12; border-radius: 8px; padding: 10px; margin-bottom: 14px; color: #fff1cf; box-shadow: 0 2px 0 rgba(0,0,0,.35); }
+.task b { font-size: 14px; }
+.task p { margin: 6px 0; font-size: 12px; line-height: 1.45; }
+.task .bar { height: 8px; background: rgba(0,0,0,.35); border-radius: 4px; overflow: hidden; margin: 8px 0; }
+.task .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #7ee0a5, #4aa3ff); transition: width .2s; }
+.task.solved { border-color: #2f7a3f; background: linear-gradient(#5aa05a, #3f7a3f); }
+.task .ok { font-weight: 700; font-size: 13px; }
+.task button { font-size: 12px; padding: 3px 8px; margin-right: 6px; background: rgba(0,0,0,.25); }

@@ -11,7 +11,7 @@ interface Item {
 }
 
 /** Buduje dokument z listy elementów i przewodów (porty jako [indeks elementu, port]). */
-function make(items: Item[], wires: [[number, number], [number, number]][]): DocData {
+export function make(items: Item[], wires: [[number, number], [number, number]][]): DocData {
   return {
     version: 1,
     components: items.map((it, i) => ({

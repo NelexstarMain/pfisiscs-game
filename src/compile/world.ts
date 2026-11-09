@@ -191,6 +191,7 @@ export class World {
     if (c && (c.type === 'diode' || c.type === 'led' || c.type === 'fuse')) {
       const d = this.dyn.get(id);
       if (d) d.thr = value;
+      if (c.type === 'fuse') this.resetFuse(id); // zmiana wartości = wymiana bezpiecznika
       return true;
     }
     const src = this.sources.find((x) => x.id === id);
