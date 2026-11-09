@@ -23,8 +23,25 @@ Silnik: `src/engine` (PBF 2D, cząstki brzegowe, siatka komórek). Skrypty pomia
    Resztkowa strefa martwa rośnie z wysokością słupa: 0,26 → 0,42 → 1,0 → 2,33 komórki (ok. 5% poziomu). Do ujęcia w kalibracji napięcia
    albo do ograniczenia wysokości roboczych.
 
+6. **Szereg i równoległość (testy `m0-series`, `m0-parallel`) spełnione.** τ(szereg)/τ(pojedynczy) = 1,91 (cel 2 ±7%).
+   Równolegle: 0,503 przy γ=64 (cel 0,5 ±7%). Przy małych γ (16, 32) wychodzi 0,38 i 0,457, bo przy krótkim τ liczy się
+   bezwładność wody, więc małe γ są poza zakresem pomiarowym. Wniosek: zakres używanych oporów ograniczyć od dołu (γ ≳ 48).
+7. **Wydajność (M0.9) lepsza od szacunku agenta.** ~1,5 µs/cząstkę/krok: 2640 cząstek = 4,0 ms/krok ≈ 8 ms/klatkę (2 podkroki).
+   Cel „3000 cząstek ≤ 8 ms/klatkę" jest na granicy (≈9 ms), mieści się w budżecie 16,6 ms na 60 FPS bez renderowania.
+   Wniosek: realny budżet to ok. 2,5–3 tys. cząstek na wątku głównym (`tools/bench.ts`).
+8. **Szczeliny muszą być zanurzone.** Poziomy poniżej wysokości szczeliny (h_p = 4) łamią model, więc GND na ≈ 8–10d (jak w planie).
+9. **OTWARTE: dzielnik napięcia ma stały błąd.** Dla identycznych szczelin stosunek (M−G)/(A−G) = 0,43 (szerokość M 4: 0,40) zamiast 0,50,
+   próg ±0,03 niespełniony. Przy 1:3 i 3:1 błąd o podobnej wielkości (0,23 zamiast ~0,29; 0,6 zamiast ~0,71).
+   Wykluczone eksperymentami: lepkość XSPH (0,0–0,25), liczba iteracji (4, 8, 16), szerokość M (4–24), kierunek (lustro daje lustrzany wynik),
+   przepływ dynamiczny (γ=128 daje to samo), histereza (start M od 16/24/32 zbiega do tego samego ~0,43–0,45),
+   zależność przewodności szczeliny od poziomu przy stałym Δh (2,6–3,1, bez trendu). Test szeregowy (patrz 6) wskazuje,
+   że szczeliny przewodzą jednakowo, więc błąd leży w **pomiarze poziomu węzła środkowego** (M czyta ok. 1,5–2,5 komórki
+   poniżej średniej głów). Hipotezy do sprawdzenia: (a) poziom z liczby cząstek w węźle z dwoma portami jest niereprezentatywny
+   (strefy przyszczelinowe o obniżonej gęstości), (b) potencjał węzła lepiej mierzyć z gęstości/ciśnienia przy ujściu szczeliny
+   niż z liczby cząstek, (c) skalibrować odczyt (poprawka zależna od liczby portów i poziomu).
+
 ## Następne kroki
-- Pomiar w stanie ustalonym (stały Δh utrzymywany przez dolewanie), zamiast przejściowego rozładowania.
+- Rozstrzygnąć błąd dzielnika (pkt 9): alternatywny pomiar potencjału węzła, porównanie z poprawką kalibracyjną.
 - Wygładzanie I (EMA) i okno ≥ 0,5 s zgodnie z planem, potem progi M0.3–M0.8.
-- Benchmark wydajności (3000 cząstek) i spiki: strefa wymuszona (cewka), `Piston1D`.
+- Spiki: strefa wymuszona (cewka), `Piston1D`. Sondy σ(V) < 0,5% V_max.
 - Plan B (WCSPH/Tait) rozważyć dopiero, jeśli ±5% nie da się osiągnąć w PBF.

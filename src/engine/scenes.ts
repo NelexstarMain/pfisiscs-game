@@ -63,3 +63,75 @@ export function level(t: TwoTanks, side: 'a' | 'b'): number {
   const n = t.sim.countIn(s.x0, t.floor, s.x1, 1e9);
   return n / (s.x1 - s.x0);
 }
+
+export interface SlotSpec {
+  gamma: number;
+  /** wysokość szczeliny (komórki) */
+  h?: number;
+}
+
+export interface ChainOpts {
+  tanks: { w: number; fill: number }[];
+  /** szczeliny w ścianie k (między zbiornikiem k a k+1); wiele = równolegle */
+  walls: SlotSpec[][];
+  inner?: number;
+  slotLen?: number;
+  floor?: number;
+}
+
+export interface Chain {
+  sim: Sim;
+  tanks: { x0: number; x1: number }[];
+  slots: { x0: number; x1: number; y0: number; y1: number }[][];
+  floor: number;
+}
+
+/** łańcuch zbiorników połączonych szczelinami przy dnie (równoległe szczeliny dzielone żebrem 2 komórki) */
+export function makeChain(o: ChainOpts): Chain {
+  const floor = o.floor ?? 3;
+  const wall = 3;
+  const inner = o.inner ?? 60;
+  const L = o.slotLen ?? 4;
+  const n = o.tanks.length;
+  const W = wall + o.tanks.reduce((a, t) => a + t.w, 0) + (n - 1) * L + wall;
+  const Ht = floor + inner;
+  const grid = new CellGrid(W, Ht);
+  grid.fillSolid(0, 0, W, floor);
+  grid.fillSolid(0, 0, wall, Ht);
+  grid.fillSolid(W - wall, 0, W, Ht);
+  const tanks: Chain['tanks'] = [];
+  const slots: Chain['slots'] = [];
+  let x = wall;
+  let cap = 0;
+  for (let k = 0; k < n; k++) {
+    const t = o.tanks[k];
+    tanks.push({ x0: x, x1: x + t.w });
+    cap += t.w * (t.fill + 8);
+    x += t.w;
+    if (k < n - 1) {
+      grid.fillSolid(x, 0, x + L, Ht);
+      const list: Chain['slots'][number] = [];
+      let y = floor;
+      for (const sp of o.walls[k] ?? []) {
+        const h = sp.h ?? 4;
+        grid.fillSolid(x, y, x + L, y + h, 0);
+        grid.setGamma(x, y, x + L, y + h, sp.gamma);
+        list.push({ x0: x, x1: x + L, y0: y, y1: y + h });
+        y += h + 2;
+        cap += L * h;
+      }
+      slots.push(list);
+      x += L;
+    }
+  }
+  const sim = new Sim(grid, cap);
+  sim.tune.xsph = 0.04;
+  for (let k = 0; k < n; k++) sim.addFluid(tanks[k].x0, floor, tanks[k].x1, floor + o.tanks[k].fill);
+  return { sim, tanks, slots, floor };
+}
+
+/** poziom wody w zbiorniku k z liczby cząstek */
+export function chainLevel(c: Chain, k: number): number {
+  const t = c.tanks[k];
+  return c.sim.countIn(t.x0, c.floor, t.x1, 1e9) / (t.x1 - t.x0);
+}

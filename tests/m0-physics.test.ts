@@ -77,7 +77,7 @@ describe('M0.7 RC: rozładowanie przez szczelinę', () => {
 
 // Kolejne progi M0 z planu. Wstępne wyniki i wnioski: docs/M0-notes.md
 describe('M0 – do zrobienia (bramka go/no-go)', () => {
+  it.todo('M0.6 dzielnik ±0,03: obecnie ratio ≈ 0,43 zamiast 0,50, patrz docs/M0-notes.md (pomiar poziomu węzła środkowego jest obciążony)');
   it.todo('M0.3 sondy: |V_licznik − V_powierzchnia| < 3%, σ(V) < 0,5% V_max');
   it.todo('M0.5 Ohm: R² ≥ 0,99, ±5%, niezależność od poziomu średniego, R(2γ)/R(γ) = 2 ± 5%');
-  it.todo('M0.6 szereg/równoległość ±7%, dzielnik ±0,03');
 });
