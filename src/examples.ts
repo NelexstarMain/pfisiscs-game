@@ -1,4 +1,4 @@
-import type { ComponentType } from './components/defs';
+import { DEFS, type ComponentType } from './components/defs';
 import type { DocData } from './model/types';
 
 type Rot = 0 | 90 | 180 | 270;
@@ -27,10 +27,46 @@ function make(items: Item[], wires: [[number, number], [number, number]][]): Doc
 }
 
 function defaultOf(t: ComponentType): number {
-  return { battery: 9, supply: 9, ground: 0, resistor: 47, bulb: 22, switch: 1, capacitor: 10, voltmeter: 0 }[t];
+  return DEFS[t].defaultValue;
 }
 
 export const EXAMPLES: Record<string, { label: string; data: DocData }> = {
+  led: {
+    label: 'LED z rezystorem',
+    data: make(
+      [
+        { type: 'supply', x: 4, y: 6 },
+        { type: 'ground', x: 4, y: 10 },
+        { type: 'resistor', x: 12, y: 6, value: 47 },
+        { type: 'led', x: 20, y: 6 },
+        { type: 'ground', x: 24, y: 10 },
+      ],
+      [
+        [[0, 0], [1, 0]],
+        [[0, 1], [2, 0]],
+        [[2, 1], [3, 0]],
+        [[3, 1], [4, 0]],
+      ],
+    ),
+  },
+  fuse: {
+    label: 'Bezpiecznik chroni obwód',
+    data: make(
+      [
+        { type: 'supply', x: 4, y: 6 },
+        { type: 'ground', x: 4, y: 10 },
+        { type: 'fuse', x: 12, y: 6, value: 0.1 },
+        { type: 'resistor', x: 20, y: 6, value: 22 },
+        { type: 'ground', x: 24, y: 10 },
+      ],
+      [
+        [[0, 0], [1, 0]],
+        [[0, 1], [2, 0]],
+        [[2, 1], [3, 0]],
+        [[3, 1], [4, 0]],
+      ],
+    ),
+  },
   resistor: {
     label: 'Zasilacz i rezystor',
     data: make(

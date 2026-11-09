@@ -6,6 +6,9 @@ export type ComponentType =
   | 'resistor'
   | 'bulb'
   | 'switch'
+  | 'diode'
+  | 'led'
+  | 'fuse'
   | 'capacitor'
   | 'voltmeter';
 
@@ -76,6 +79,33 @@ export const DEFS: Record<ComponentType, ComponentDef> = {
     defaultValue: 1, // 1 = zwarty, 0 = rozwarty
     unit: '',
     water: 'Zastawka: otwarta przepuszcza wodę, zamknięta blokuje przepływ.',
+  },
+  diode: {
+    type: 'diode',
+    label: 'Dioda',
+    ports: 2,
+    portNames: ['A', 'K'],
+    defaultValue: 0.7,
+    unit: 'V',
+    water: 'Zawór zwrotny: przepuszcza wodę tylko od anody (A) do katody (K), gdy nacisk przekroczy próg.',
+  },
+  led: {
+    type: 'led',
+    label: 'LED',
+    ports: 2,
+    portNames: ['A', 'K'],
+    defaultValue: 2,
+    unit: 'V',
+    water: 'Zawór zwrotny z lampką: świeci tym mocniej, im więcej wody przepływa (od A do K, po przekroczeniu progu).',
+  },
+  fuse: {
+    type: 'fuse',
+    label: 'Bezpiecznik',
+    ports: 2,
+    portNames: ['A', 'B'],
+    defaultValue: 0.25,
+    unit: 'A',
+    water: 'Kruchy zawór: gdy przepływ jest zbyt duży przez dłuższą chwilę, pęka i przerywa obwód.',
   },
   capacitor: {
     type: 'capacitor',

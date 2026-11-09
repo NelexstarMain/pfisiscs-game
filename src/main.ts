@@ -44,6 +44,7 @@ function updatePalette() {
 }
 
 // ---------- kompilacja świata ----------
+const SHORT: Partial<Record<ComponentType, string>> = { resistor: 'R', capacitor: 'C', diode: 'Dioda', led: 'LED', fuse: 'Bezp.', bulb: 'Żarówka' };
 function labelsFor(): NetLabels {
   const nl = computeNets(doc);
   const net = new Map<string, string>();
@@ -60,7 +61,7 @@ function labelsFor(): NetLabels {
   }
   for (const c of doc.components.values()) {
     const u = DEFS[c.type].unit;
-    comp.set(c.id, c.type === 'switch' ? (c.value >= 0.5 ? 'zwarty' : 'rozwarty') : `${DEFS[c.type].label[0]} ${c.value}${u ? ' ' + u : ''}`);
+    comp.set(c.id, c.type === 'switch' ? `Przełącznik: ${c.value >= 0.5 ? 'zwarty' : 'rozwarty'}` : `${SHORT[c.type] ?? DEFS[c.type].label} ${c.value}${u ? ' ' + u : ''}`);
   }
   return { net, comp };
 }

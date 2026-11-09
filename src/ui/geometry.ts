@@ -2,7 +2,7 @@ import { DEFS } from '../components/defs';
 import type { Component, PortKey, Vec } from '../model/types';
 import { portComp, portIndex } from '../model/types';
 
-export const GRID = 20; // px na jednostkę siatki w widoku schematu
+export const GRID = 16; // px na jednostkę siatki w widoku schematu
 
 /** przesunięcia portów w jednostkach siatki dla rotacji 0 */
 export function portOffsets(type: Component['type']): Vec[] {

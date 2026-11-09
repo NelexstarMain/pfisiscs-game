@@ -345,6 +345,43 @@ export class SchematicView {
         ctx.fill();
         break;
       }
+      case 'diode':
+      case 'led': {
+        line(0, 0, mid - 10, 0);
+        line(mid + 10, 0, L, 0);
+        ctx.beginPath();
+        ctx.moveTo(mid - 10, -11);
+        ctx.lineTo(mid - 10, 11);
+        ctx.lineTo(mid + 10, 0);
+        ctx.closePath();
+        ctx.stroke();
+        line(mid + 10, -11, mid + 10, 11);
+        if (c.type === 'led') {
+          const p = live ? Math.min(1, this.world!.power(c.id) / 0.15) : 0;
+          if (p > 0.02) {
+            const g = ctx.createRadialGradient(mid, -2, 2, mid, -2, 30);
+            g.addColorStop(0, `rgba(255,90,80,${0.95 * p})`);
+            g.addColorStop(1, 'rgba(255,60,60,0)');
+            ctx.fillStyle = g;
+            ctx.fillRect(mid - 34, -34, 68, 68);
+            ctx.fillStyle = ink;
+          }
+          line(mid - 2, -14, mid + 6, -22);
+          line(mid + 4, -12, mid + 12, -20);
+        }
+        break;
+      }
+      case 'fuse': {
+        const blown = live && this.world!.blown.has(c.id);
+        line(0, 0, mid - 18, 0);
+        line(mid + 18, 0, L, 0);
+        ctx.strokeRect(mid - 18, -6, 36, 12);
+        if (blown) {
+          ctx.strokeStyle = COLORS.danger;
+          line(mid - 18, 7, mid + 18, -7);
+        } else line(mid - 18, 0, mid + 18, 0);
+        break;
+      }
       case 'capacitor':
         line(0, 0, mid - 4, 0);
         line(mid + 4, 0, L, 0);
@@ -413,7 +450,7 @@ export class SchematicView {
       if (c.type === 'voltmeter') {
         const v = this.netVoltage(portKey(c.id, 0));
         txt = v === null ? '' : `${v.toFixed(2)} V`;
-      } else if (c.type === 'resistor' || c.type === 'bulb' || c.type === 'switch') {
+      } else if (c.type === 'resistor' || c.type === 'bulb' || c.type === 'switch' || c.type === 'diode' || c.type === 'led' || c.type === 'fuse') {
         const i = this.world!.current(c.id);
         txt = `${(i * 1000).toFixed(0)} mA`;
       }
@@ -426,7 +463,7 @@ export class SchematicView {
     ctx.restore();
 
     // kropki przepływu prądu na elemencie 2-portowym
-    if (live && (c.type === 'resistor' || c.type === 'bulb' || c.type === 'switch')) {
+    if (live && (c.type === 'resistor' || c.type === 'bulb' || c.type === 'switch' || c.type === 'diode' || c.type === 'led' || c.type === 'fuse')) {
       const i = this.world!.current(c.id);
       if (Math.abs(i) > 0.003) {
         const a = portPos(c, 0);

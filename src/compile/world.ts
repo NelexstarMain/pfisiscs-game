@@ -16,11 +16,16 @@ const MANIFOLD_Y0 = 3;
 const MANIFOLD_Y1 = 7;
 const PLATE_Y1 = 11; // góra płyty = dno zbiorników
 export const FLOOR_Y = PLATE_Y1;
+/** wysokość, od której tamy między zbiornikami rysujemy dynamicznie (nad stosem szczelin) */
+export const DAM_BASE_Y = FLOOR_Y + 11;
+export const MANIFOLD_ROWS = { y0: MANIFOLD_Y0, y1: MANIFOLD_Y1 };
 const SHAFT_W = 4;
 const GAMMA_SWITCH_CLOSED = 8;
 const GAMMA_SWITCH_OPEN = 1e5;
+/** opór otwartego zaworu (dioda, LED, bezpiecznik) [Ω] */
+const R_VALVE = 12;
 
-type CondType = 'resistor' | 'bulb' | 'switch';
+type CondType = 'resistor' | 'bulb' | 'switch' | 'diode' | 'led' | 'fuse';
 interface Cond {
   id: string;
   type: CondType;
@@ -71,8 +76,19 @@ class Ema {
   }
 }
 
+export interface Gap {
+  x0: number;
+  x1: number;
+  netL: string;
+  netR: string;
+  /** czy między tymi zbiornikami płynie woda przez element (do rysowania wodospadu) */
+  connected: boolean;
+}
+
 export class World {
   sim!: Sim;
+  columns: { net: string; x0: number; x1: number }[] = [];
+  gaps: Gap[] = [];
   W = 0;
   H = 0;
   tanks = new Map<string, TankInfo>();
@@ -84,6 +100,10 @@ export class World {
   private iEma = new Map<string, Ema>();
   private servoAcc = new Map<string, number>();
   time = 0;
+  /** zawory sterowane napięciem/przepływem: dioda, LED, bezpiecznik */
+  private dyn = new Map<string, { type: 'diode' | 'led' | 'fuse'; gammaOn: number; thr: number; a: number; over: number }>();
+  /** przepalone bezpieczniki */
+  blown = new Set<string>();
 
   /** napięcie sieci względem masy [V] */
   voltage(net: string): number {
@@ -120,6 +140,45 @@ export class World {
     this.time += dt;
     this.measure(dt);
     this.servo(dt);
+    this.valves(dt);
+  }
+
+  /** stopień otwarcia zaworu 0..1 (do rysowania i diagnostyki) */
+  aperture(compId: string): number {
+    return this.dyn.get(compId)?.a ?? 0;
+  }
+
+  /** Dioda/LED: apertura rośnie od progu; bezpiecznik pęka po zbyt długim przekroczeniu prądu. */
+  private valves(dt: number): void {
+    for (const c of this.conds) {
+      const d = this.dyn.get(c.id);
+      if (!d) continue;
+      let target: number;
+      if (d.type === 'fuse') {
+        if (!this.blown.has(c.id) && Math.abs(this.current(c.id)) > d.thr) d.over += dt;
+        else if (!this.blown.has(c.id)) d.over = Math.max(0, d.over - dt * 0.5);
+        if (d.over > 0.6) this.blown.add(c.id);
+        target = this.blown.has(c.id) ? 0 : 1;
+      } else {
+        const dv = this.voltage(c.netA) - this.voltage(c.netB); // anoda minus katoda
+        target = Math.max(0, Math.min(1, (dv - d.thr) / 0.4));
+      }
+      d.a += (1 - Math.exp(-dt / 0.05)) * (target - d.a);
+      const z = c.zone;
+      const gamma = d.a < 0.02 ? 1e5 : Math.min(1e5, d.gammaOn / d.a);
+      this.sim.grid.setGamma(z.x0, z.y0, z.x1, z.y1, gamma);
+    }
+  }
+
+  registerValves(list: { id: string; type: 'diode' | 'led' | 'fuse'; gammaOn: number; thr: number }[]): void {
+    for (const v of list) this.dyn.set(v.id, { type: v.type, gammaOn: v.gammaOn, thr: v.thr, a: v.type === 'fuse' ? 1 : 0, over: 0 });
+  }
+
+  /** wymiana przepalonego bezpiecznika */
+  resetFuse(compId: string): void {
+    this.blown.delete(compId);
+    const d = this.dyn.get(compId);
+    if (d) d.over = 0;
   }
 
   private measure(dt: number): void {
@@ -223,7 +282,10 @@ export function compile(doc: Doc): World {
     switch (c.type) {
       case 'resistor':
       case 'bulb':
-      case 'switch': {
+      case 'switch':
+      case 'diode':
+      case 'led':
+      case 'fuse': {
         const a = netOf(c.id, 0);
         const b = netOf(c.id, 1);
         if (a === b) break; // zwarty sam ze sobą
@@ -391,11 +453,16 @@ export function compile(doc: Doc): World {
     info.push({ id: c.id, type: c.type, netA: c.netA, netB: c.netB, zone, kind: 'slot', sign: ca < cb ? 1 : -1 });
   }
   // opór stref
+  const dynInit: { id: string; type: 'diode' | 'led' | 'fuse'; gammaOn: number; thr: number }[] = [];
   for (const ci of info) {
     const comp = doc.components.get(ci.id)!;
     let gamma: number;
     if (ci.type === 'switch') gamma = comp.value >= 0.5 ? GAMMA_SWITCH_CLOSED : GAMMA_SWITCH_OPEN;
-    else gamma = gammaForResistance(ci.kind === 'shaft' ? comp.value * SHAFT_G_FACTOR : comp.value);
+    else if (ci.type === 'diode' || ci.type === 'led' || ci.type === 'fuse') {
+      const on = gammaForResistance(ci.kind === 'shaft' ? R_VALVE * SHAFT_G_FACTOR : R_VALVE);
+      dynInit.push({ id: ci.id, type: ci.type, gammaOn: on, thr: comp.value });
+      gamma = 1e5;
+    } else gamma = gammaForResistance(ci.kind === 'shaft' ? comp.value * SHAFT_G_FACTOR : comp.value);
     grid.setGamma(ci.zone.x0, ci.zone.y0, ci.zone.x1, ci.zone.y1, gamma);
   }
 
@@ -419,6 +486,20 @@ export function compile(doc: Doc): World {
   w.gnd = gndTank;
   w.conds = info;
   w.sources = sources;
+  w.columns = xs;
+  w.gaps = xs.map((t, k) => {
+    const last = k === xs.length - 1;
+    return {
+      x0: t.x1,
+      x1: last ? gx0 : xs[k + 1].x0,
+      netL: t.net,
+      netR: last ? gnd : xs[k + 1].net,
+      connected: last
+        ? gndConds.some((c) => c.netA === t.net || c.netB === t.net)
+        : slotConds.some((c) => Math.min(col.get(c.netA)!, col.get(c.netB)!) === k),
+    };
+  });
+  w.registerValves(dynInit);
   return w;
 }
 

@@ -20,6 +20,14 @@ Edytor schematu (paleta, przeciąganie, przewody, obrót, undo/redo, dwuklik na 
 panel właściwości, przykłady (rezystor, dzielnik, żarówka z przełącznikiem, RC), zapis/odczyt JSON. Uruchomienie: `npm run dev`.
 Gra ma uczyć intuicji, nie dokładności: kalibracja jest na poziomie ok. ±6%, więcej nie trzeba.
 
+## Styl wizualny (bajkowy)
+Widok wody: niebo ze słońcem i chmurami, drewniane koryta i tamy (rosną z poziomem wody), wyspa unosząca się na niebie z podziemnym
+kolektorem, woda z falą, tabliczki z opisami. Spadek napięcia na elemencie to **wodospad** przez tamę, tym szerszy, im większy prąd,
+z podpisem „−x V". Zamknięta tama (otwarty przełącznik, przepalony bezpiecznik) stoi sucha. Wysokość w niebie = napięcie (linijka po lewej).
+
+## Zawory (M3, część)
+Dioda, LED (próg napięcia, jasność od mocy) i bezpiecznik (pęka po ~0,6 s przekroczenia prądu): `World.valves` zmienia γ strefy w locie.
+
 ## Kalibracja (patrz `src/compile/calibration.ts`)
 Mierzone prawdziwym przepływem netto serwa (`tools/gsweep.ts`, `tools/truth.ts`): szyb G·γ ≈ 77, szczelina G·γ ≈ 88,
 estymator prądu w strefie zaniża o 8% (korekta ZONE_FLOW_BIAS). Zakres rezystorów 7…330 Ω.
