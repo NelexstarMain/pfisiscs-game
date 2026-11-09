@@ -26,8 +26,6 @@ export class Sim {
   forced: { x0: number; y0: number; x1: number; y1: number; v: number; axis?: 'x' | 'y' }[] = [];
   /** opór strefy tłumi też przemieszczenie z korekcji ciśnienia (brak podłogi przecieku) */
   dragPressure = true;
-  /** ściana bez tarcia stycznego (eksperyment: nie zmienia wyniku dzielnika, domyślnie wyłączone) */
-  freeSlip = false;
   n: number;
   /** gęstość spoczynkowa policzona z idealnej siatki */
   readonly rho0: number;
@@ -43,6 +41,17 @@ export class Sim {
   private dy: Float32Array;
   private nbr: Int32Array;
   private nn: Int32Array;
+  /** akumulatory par (symetryczne sumowanie): gęstość, gradient, suma |∇|², przemieszczenie */
+  private aRho: Float64Array;
+  private aGx: Float64Array;
+  private aGy: Float64Array;
+  private aGs: Float64Array;
+  private aSx: Float64Array;
+  private aSy: Float64Array;
+  /** na krok: czynnik oporu strefy (1 poza strefą) i indeks strefy z narzuconą prędkością */
+  private gfac: Float32Array;
+  private zone: Int16Array;
+  private cellFill: Int32Array;
 
   private cellStart: Int32Array;
   private cellItems: Int32Array;
@@ -73,6 +82,14 @@ export class Sim {
     this.dy = new Float32Array(c);
     this.nbr = new Int32Array(c * maxNeighbors);
     this.nn = new Int32Array(c);
+    this.aRho = new Float64Array(c);
+    this.aGx = new Float64Array(c);
+    this.aGy = new Float64Array(c);
+    this.aGs = new Float64Array(c);
+    this.aSx = new Float64Array(c);
+    this.aSy = new Float64Array(c);
+    this.gfac = new Float32Array(c);
+    this.zone = new Int16Array(c);
     for (let k = 0; k < this.nB; k++) {
       this.px[k] = boundary[2 * k];
       this.py[k] = boundary[2 * k + 1];
@@ -81,6 +98,7 @@ export class Sim {
     this.gh = Math.ceil(grid.h / h) + 1;
     this.cellStart = new Int32Array(this.gw * this.gh + 1);
     this.cellItems = new Int32Array(c);
+    this.cellFill = new Int32Array(this.gw * this.gh);
   }
 
   /** Wypełnia komórki prostokąta cząstkami (po jednej na komórkę, środek komórki). */
@@ -109,7 +127,8 @@ export class Sim {
       Math.min(gh - 1, Math.max(0, (y / h) | 0)) * gw + Math.min(gw - 1, Math.max(0, (x / h) | 0));
     for (let k = 0; k < this.n; k++) cellStart[cellOf(this.qx[k], this.qy[k]) + 1]++;
     for (let c = 0; c < gw * gh; c++) cellStart[c + 1] += cellStart[c];
-    const fill = new Int32Array(gw * gh);
+    const fill = this.cellFill;
+    fill.fill(0);
     for (let k = 0; k < this.n; k++) {
       const c = cellOf(this.qx[k], this.qy[k]);
       cellItems[cellStart[c] + fill[c]++] = k;
@@ -134,7 +153,7 @@ export class Sim {
           const c = yy * gw + xx;
           for (let s = cellStart[c]; s < cellStart[c + 1]; s++) {
             const j = cellItems[s];
-            if (j === i) continue;
+            if (j >= this.nB && j <= i) continue; // pary płyn-płyn tylko raz (j > i), ściany zawsze
             const ddx = x - qx[j];
             const ddy = y - qy[j];
             if (ddx * ddx + ddy * ddy < H2 && cnt < maxNeighbors) nbr[base + cnt++] = j;
@@ -194,34 +213,42 @@ export class Sim {
   }
 
   step(dt: number = PARAMS.dt): void {
-    const { nB, n, px, py, vx, vy, qx, qy, lambda, dx, dy, nbr, nn, grid } = this;
+    const { nB, n, px, py, vx, vy, qx, qy, lambda, dx, dy, nbr, nn, grid, gfac, zone } = this;
+    const { aRho, aGx, aGy, aGs, aSx, aSy } = this;
     const gw = grid.w;
-    // predykcja z grawitacją i oporem strefy (półjawnie)
+    const gh = grid.h;
+    const gamma = grid.gamma;
+    const solid = grid.solid;
+    const forced = this.forced;
+    const hasForced = forced.length > 0;
+    const dragP = this.dragPressure;
+    // predykcja z grawitacją i oporem strefy (półjawnie); opór i strefa zależą od pozycji z początku kroku,
+    // więc liczymy je raz na cząstkę
     for (let i = nB; i < n; i++) {
-      const ci = Math.min(grid.w - 1, Math.max(0, Math.floor(px[i])));
-      const cj = Math.min(grid.h - 1, Math.max(0, Math.floor(py[i])));
-      const gam = grid.gamma[cj * gw + ci];
+      const ci = Math.min(gw - 1, Math.max(0, Math.floor(px[i])));
+      const cj = Math.min(gh - 1, Math.max(0, Math.floor(py[i])));
+      const gam = gamma[cj * gw + ci];
       // najpierw opór strefy (tłumi dotychczasową prędkość), potem grawitacja (nietłumiona),
       // żeby hydrostatyka w pionowym szybie nie była osłabiona oporem
-      let fg = 1;
+      let f = 1;
       if (gam > 0) {
-        const f = 1 / (1 + gam * dt);
+        f = 1 / (1 + gam * dt);
         vx[i] *= f;
         vy[i] *= f;
-        // korekcja ciśnienia w strefie jest tłumiona tym samym czynnikiem, więc grawitację też (równowaga hydrostatyczna)
-        if (this.dragPressure) fg = f;
       }
-      vy[i] -= g * dt * fg;
-      if (this.forced.length) {
-        const z = this.zoneOf(px[i], py[i]);
-        if (z >= 0) {
-          if (this.forced[z].axis === 'y') vy[i] = this.forced[z].v;
-          else vx[i] = this.forced[z].v;
-        }
+      // korekcja ciśnienia w strefie jest tłumiona tym samym czynnikiem, więc grawitację też (równowaga hydrostatyczna)
+      const fz = dragP ? f : 1;
+      gfac[i] = fz;
+      vy[i] -= g * dt * fz;
+      const zi = hasForced ? this.zoneOf(px[i], py[i]) : -1;
+      zone[i] = zi;
+      if (zi >= 0) {
+        if (forced[zi].axis === 'y') vy[i] = forced[zi].v;
+        else vx[i] = forced[zi].v;
       }
       qx[i] = px[i] + vx[i] * dt;
       qy[i] = py[i] + vy[i] * dt;
-      this.collide(i);
+      this.collideIfSolid(i, gw, gh, solid);
     }
     // cząstki brzegowe stoją
     for (let k = 0; k < nB; k++) {
@@ -232,126 +259,166 @@ export class Sim {
     this.findNeighbors();
 
     const rho0 = this.rho0;
+    const invRho0 = 1 / rho0;
     const { iterations, epsilon, scorrK, xsph } = this.tune;
+    const W0 = poly6(0);
     for (let it = 0; it < iterations; it++) {
+      // 1. gęstość i gradienty: każda para płyn-płyn liczona raz i dodawana do obu cząstek
       for (let i = nB; i < n; i++) {
-        let rho = poly6(0);
-        let gsum2 = 0;
-        let gix = 0;
-        let giy = 0;
-        const base = i * maxNeighbors;
-        for (let s = 0; s < nn[i]; s++) {
-          const j = nbr[base + s];
-          const ddx = qx[i] - qx[j];
-          const ddy = qy[i] - qy[j];
-          const r2 = ddx * ddx + ddy * ddy;
-          rho += poly6(r2);
-          const r = Math.sqrt(r2) + 1e-9;
-          const gm = (SPIKY * (h - r) * (h - r)) / (rho0 * r);
-          gix += gm * ddx;
-          giy += gm * ddy;
-          gsum2 += gm * gm * r2;
-        }
-        gsum2 += gix * gix + giy * giy;
-        const C = Math.max(0, rho / rho0 - 1);
-        lambda[i] = -C / (gsum2 + epsilon);
+        aRho[i] = W0;
+        aGx[i] = 0;
+        aGy[i] = 0;
+        aGs[i] = 0;
       }
       for (let i = nB; i < n; i++) {
-        let sx = 0;
-        let sy = 0;
-        // wkład ściany (cząstek brzegowych) i normalna ściany
-        let bx = 0;
-        let by = 0;
-        let nxw = 0;
-        let nyw = 0;
         const base = i * maxNeighbors;
-        const li = lambda[i];
-        for (let s = 0; s < nn[i]; s++) {
+        const cnt = nn[i];
+        const xi = qx[i];
+        const yi = qy[i];
+        let rho = aRho[i];
+        let gix = aGx[i];
+        let giy = aGy[i];
+        let gsi = aGs[i];
+        for (let s = 0; s < cnt; s++) {
           const j = nbr[base + s];
-          const ddx = qx[i] - qx[j];
-          const ddy = qy[i] - qy[j];
+          const ddx = xi - qx[j];
+          const ddy = yi - qy[j];
           const r2 = ddx * ddx + ddy * ddy;
+          const dd = H2 - r2;
+          const w = dd > 0 ? POLY6 * dd * dd * dd : 0;
           const r = Math.sqrt(r2) + 1e-9;
+          const gm = (SPIKY * (h - r) * (h - r) * invRho0) / r;
+          const gx = gm * ddx;
+          const gy = gm * ddy;
+          const gg = gm * gm * r2;
+          rho += w;
+          gix += gx;
+          giy += gy;
+          gsi += gg;
+          if (j >= nB) {
+            aRho[j] += w;
+            aGx[j] -= gx;
+            aGy[j] -= gy;
+            aGs[j] += gg;
+          }
+        }
+        aRho[i] = rho;
+        aGx[i] = gix;
+        aGy[i] = giy;
+        aGs[i] = gsi;
+      }
+      for (let i = nB; i < n; i++) {
+        const C = Math.max(0, aRho[i] * invRho0 - 1);
+        lambda[i] = C > 0 ? -C / (aGs[i] + aGx[i] * aGx[i] + aGy[i] * aGy[i] + epsilon) : 0;
+        aSx[i] = 0;
+        aSy[i] = 0;
+      }
+      // 2. przemieszczenia: też parami, pary z zerowym λ pomijamy (nie wnoszą nic)
+      const hasScorr = scorrK !== 0;
+      for (let i = nB; i < n; i++) {
+        const base = i * maxNeighbors;
+        const cnt = nn[i];
+        const li = lambda[i];
+        const xi = qx[i];
+        const yi = qy[i];
+        let sx = aSx[i];
+        let sy = aSy[i];
+        for (let s = 0; s < cnt; s++) {
+          const j = nbr[base + s];
           const wall = j < nB;
           const lj = wall ? li : lambda[j];
-          const wr = poly6(r2) / W_DQ;
-          const sc = -scorrK * wr * wr * wr * wr;
-          const gm = (SPIKY * (h - r) * (h - r)) / r;
-          const k = (li + lj + sc) * gm;
-          if (wall && this.freeSlip) {
-            bx += k * ddx;
-            by += k * ddy;
-            const w = poly6(r2);
-            nxw += ddx * w;
-            nyw += ddy * w;
-          } else {
-            sx += k * ddx;
-            sy += k * ddy;
+          const lsum = li + lj;
+          if (lsum === 0 && !hasScorr) continue;
+          const ddx = xi - qx[j];
+          const ddy = yi - qy[j];
+          const r2 = ddx * ddx + ddy * ddy;
+          const r = Math.sqrt(r2) + 1e-9;
+          let sc = 0;
+          if (hasScorr) {
+            const wr = poly6(r2) / W_DQ;
+            sc = -scorrK * wr * wr * wr * wr;
+          }
+          const k = ((lsum + sc) * SPIKY * (h - r) * (h - r)) / r;
+          const kx = k * ddx;
+          const ky = k * ddy;
+          sx += kx;
+          sy += ky;
+          if (!wall) {
+            aSx[j] -= kx;
+            aSy[j] -= ky;
           }
         }
-        if (bx !== 0 || by !== 0) {
-          // ściana swobodnego poślizgu: tylko składowa wzdłuż normalnej
-          const nl = Math.hypot(nxw, nyw);
-          if (nl > 1e-9) {
-            const ux = nxw / nl;
-            const uy = nyw / nl;
-            const proj = bx * ux + by * uy;
-            sx += proj * ux;
-            sy += proj * uy;
-          } else {
-            sx += bx;
-            sy += by;
-          }
-        }
-        dx[i] = sx / rho0;
-        dy[i] = sy / rho0;
+        aSx[i] = sx;
+        aSy[i] = sy;
       }
       for (let i = nB; i < n; i++) {
-        // w strefie oporowej tłumimy też przemieszczenie z korekcji ciśnienia (inaczej opór ma „podłogę przecieku")
-        const gam = grid.gamma[Math.min(grid.h - 1, Math.max(0, Math.floor(py[i]))) * gw + Math.min(grid.w - 1, Math.max(0, Math.floor(px[i])))];
-        const fz = gam > 0 && this.dragPressure ? 1 / (1 + gam * dt) : 1;
-        const fzn = this.forced.length ? this.zoneOf(px[i], py[i]) : -1;
-        if (fzn >= 0) {
+        dx[i] = aSx[i] * invRho0;
+        dy[i] = aSy[i] * invRho0;
+        const fz = gfac[i];
+        const zi = zone[i];
+        if (zi >= 0) {
           // w strefie z narzuconą prędkością nie ruszamy osi przepływu
-          if (this.forced[fzn].axis === 'y') qx[i] += dx[i] * fz;
+          if (forced[zi].axis === 'y') qx[i] += dx[i] * fz;
           else qy[i] += dy[i] * fz;
         } else {
           qx[i] += dx[i] * fz;
           qy[i] += dy[i] * fz;
         }
-        this.collide(i);
+        this.collideIfSolid(i, gw, gh, solid);
       }
     }
 
-    // prędkości, lepkość XSPH, zapis pozycji
+    // prędkości, lepkość XSPH (parami), zapis pozycji
     for (let i = nB; i < n; i++) {
       vx[i] = (qx[i] - px[i]) / dt;
       vy[i] = (qy[i] - py[i]) / dt;
+      aSx[i] = 0;
+      aSy[i] = 0;
     }
     for (let i = nB; i < n; i++) {
-      let ax = 0;
-      let ay = 0;
       const base = i * maxNeighbors;
-      for (let s = 0; s < nn[i]; s++) {
+      const cnt = nn[i];
+      const xi = qx[i];
+      const yi = qy[i];
+      const vxi = vx[i];
+      const vyi = vy[i];
+      let ax = aSx[i];
+      let ay = aSy[i];
+      for (let s = 0; s < cnt; s++) {
         const j = nbr[base + s];
         if (j < nB) continue;
-        const ddx = qx[i] - qx[j];
-        const ddy = qy[i] - qy[j];
-        const w = poly6(ddx * ddx + ddy * ddy) / rho0;
-        ax += (vx[j] - vx[i]) * w;
-        ay += (vy[j] - vy[i]) * w;
+        const ddx = xi - qx[j];
+        const ddy = yi - qy[j];
+        const d2 = H2 - (ddx * ddx + ddy * ddy);
+        if (d2 <= 0) continue;
+        const w = (POLY6 * d2 * d2 * d2) * invRho0;
+        const ux = (vx[j] - vxi) * w;
+        const uy = (vy[j] - vyi) * w;
+        ax += ux;
+        ay += uy;
+        aSx[j] -= ux;
+        aSy[j] -= uy;
       }
-      dx[i] = ax;
-      dy[i] = ay;
+      aSx[i] = ax;
+      aSy[i] = ay;
     }
+    const W = grid.w;
+    const Hh = grid.h;
     for (let i = nB; i < n; i++) {
-      vx[i] += xsph * dx[i];
-      vy[i] += xsph * dy[i];
+      vx[i] += xsph * aSx[i];
+      vy[i] += xsph * aSy[i];
       px[i] = qx[i];
       py[i] = qy[i];
-      if (!(px[i] >= 0 && px[i] <= grid.w && py[i] >= 0 && py[i] <= grid.h)) this.lost++;
+      if (!(px[i] >= 0 && px[i] <= W && py[i] >= 0 && py[i] <= Hh)) this.lost++;
     }
     this.time += dt;
+  }
+
+  /** szybka ścieżka: pełne wypychanie ze ściany tylko, gdy cząstka jest w komórce-ścianie lub poza siatką */
+  private collideIfSolid(i: number, gw: number, gh: number, solid: Uint8Array): void {
+    const ci = Math.floor(this.qx[i]);
+    const cj = Math.floor(this.qy[i]);
+    if (ci < 0 || cj < 0 || ci >= gw || cj >= gh || solid[cj * gw + ci] === 1) this.collide(i);
   }
 
   /** liczba cząstek płynu w prostokącie [x0,x1) x [y0,y1) */
