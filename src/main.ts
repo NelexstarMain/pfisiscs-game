@@ -103,6 +103,13 @@ doc.subscribe((cmd) => {
   if (kinds.length && kinds.every((k) => k === 'move' || k === 'rotate')) return;
   if (cmd.kind === 'value') {
     const c = doc.components.get(cmd.id);
+    if (c && c.type !== 'switch' && world && world.setValue(c.id, c.value)) {
+      // zmiana w locie, bez resetu wody
+      water.labels = labelsFor();
+      if (c.type === 'supply' || c.type === 'ac') water.vmax = schematic.vmax = Math.max(5, c.value);
+      renderProps();
+      return;
+    }
     if (c && c.type === 'switch' && world) {
       world.setSwitch(c.id, c.value >= 0.5);
       water.labels = labelsFor();
@@ -130,6 +137,8 @@ function renderProps() {
   } else if (c.type !== 'ground' && c.type !== 'voltmeter') {
     const isR = c.type === 'resistor' || c.type === 'bulb';
     html += `<label>Wartość [${def.unit}]</label><input id="val" type="number" step="any" min="${isR ? R_MIN.toFixed(1) : 0}" ${isR ? `max="${R_MAX.toFixed(0)}"` : ''} value="${c.value}">`;
+    const sl = sliderFor(c.type);
+    if (sl) html += `<input id="slider" type="range" min="${sl.min}" max="${sl.max}" step="${sl.step}" value="${c.value}">`;
     if (isR) html += `<p class="hint">Zakres symulacji: ${R_MIN.toFixed(0)}…${R_MAX.toFixed(0)} Ω.</p>`;
   }
   if (world && (c.type === 'resistor' || c.type === 'bulb' || c.type === 'switch')) {
@@ -137,6 +146,18 @@ function renderProps() {
   }
   body.innerHTML = html;
   $('toggle')?.addEventListener('click', () => doc.apply({ kind: 'value', id: c.id, value: c.value >= 0.5 ? 0 : 1 }));
+  const slider = body.querySelector<HTMLInputElement>('#slider');
+  slider?.addEventListener('input', () => {
+    // podgląd na żywo: zmieniamy świat, ale jeszcze nie dokument (jedno cofnięcie na cały ruch suwaka)
+    const v = Number(slider.value);
+    world?.setValue(c.id, v);
+    const num = body.querySelector<HTMLInputElement>('#val');
+    if (num) num.value = String(v);
+  });
+  slider?.addEventListener('change', () => {
+    const v = Number(slider.value);
+    if (v !== c.value) doc.apply({ kind: 'value', id: c.id, value: v });
+  });
   const inp = body.querySelector<HTMLInputElement>('#val');
   inp?.addEventListener('change', () => {
     let v = Number(inp.value);
@@ -144,6 +165,21 @@ function renderProps() {
     if (c.type === 'resistor' || c.type === 'bulb') v = Math.min(R_MAX, Math.max(R_MIN, v));
     if (v !== c.value) doc.apply({ kind: 'value', id: c.id, value: v });
   });
+}
+function sliderFor(t: ComponentType): { min: number; max: number; step: number } | null {
+  switch (t) {
+    case 'resistor':
+    case 'bulb':
+      return { min: R_MIN, max: R_MAX, step: 1 };
+    case 'supply':
+      return { min: 0, max: 12, step: 0.5 };
+    case 'ac':
+      return { min: 0, max: 6, step: 0.5 };
+    case 'fuse':
+      return { min: 0.05, max: 0.6, step: 0.05 };
+    default:
+      return null;
+  }
 }
 function updateMeasurements() {
   const id = schematic.selected;

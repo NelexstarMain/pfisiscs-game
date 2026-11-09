@@ -42,3 +42,5 @@ kbd { background: #1f2d3b; border: 1px solid var(--line); border-radius: 4px; pa
 .kv { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); margin: 3px 0; }
 .kv b { color: var(--ink); font-weight: 600; }
 @media (max-width: 900px) { main { grid-template-columns: 1fr; } aside { display: none; } }
+
+#props input[type="range"] { width: 100%; margin: 8px 0 2px; accent-color: var(--water); }

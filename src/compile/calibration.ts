@@ -59,5 +59,5 @@ export function gammaForResistance(R: number): number {
 }
 
 /** Zakres rezystancji [Ω] realizowanych w symulacji (dolna granica: opór wlotu/wylotu szybu przy małych γ). */
-export const R_MIN = 7;
+export const R_MIN = 15;
 export const R_MAX = 330;

@@ -176,6 +176,31 @@ export class World {
     for (const v of list) this.dyn.set(v.id, { type: v.type, gammaOn: v.gammaOn, thr: v.thr, a: v.type === 'fuse' ? 1 : 0, over: 0 });
   }
 
+  /**
+   * Zmiana wartości elementu w locie, bez przebudowy świata (suwaki w panelu).
+   * Zwraca false, jeśli element wymaga ponownej kompilacji (np. pojemność, napięcie baterii).
+   */
+  setValue(id: string, value: number): boolean {
+    const c = this.conds.find((x) => x.id === id);
+    if (c && (c.type === 'resistor' || c.type === 'bulb')) {
+      const gamma = gammaForResistance(c.kind === 'shaft' ? value * SHAFT_G_FACTOR : value);
+      const z = c.zone;
+      this.sim.grid.setGamma(z.x0, z.y0, z.x1, z.y1, gamma);
+      return true;
+    }
+    if (c && (c.type === 'diode' || c.type === 'led' || c.type === 'fuse')) {
+      const d = this.dyn.get(id);
+      if (d) d.thr = value;
+      return true;
+    }
+    const src = this.sources.find((x) => x.id === id);
+    if (src && src.type !== 'battery') {
+      src.volts = value;
+      return true;
+    }
+    return false;
+  }
+
   /** wymiana przepalonego bezpiecznika */
   resetFuse(compId: string): void {
     this.blown.delete(compId);

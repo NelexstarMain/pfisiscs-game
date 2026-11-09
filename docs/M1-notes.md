@@ -35,5 +35,5 @@ Przykłady: dwie żarówki równolegle (dwa szyby do masy), prąd zmienny.
 
 ## Kalibracja (patrz `src/compile/calibration.ts`)
 Mierzone prawdziwym przepływem netto serwa (`tools/gsweep.ts`, `tools/truth.ts`): szyb G·γ ≈ 77, szczelina G·γ ≈ 88,
-estymator prądu w strefie zaniża o 8% (korekta ZONE_FLOW_BIAS). Zakres rezystorów 7…330 Ω.
+estymator prądu w strefie zaniża o 8% (korekta ZONE_FLOW_BIAS). Zakres rezystorów 15…330 Ω (poniżej opór wlotu/wylotu zaburza wynik, zwłaszcza przy niskim napięciu).
 1 V = 1 komórka wysokości, 1 A = 50 cząstek/s, GND na poziomie 12. Szyb pionowy ma współczynnik 0,87 względem szczeliny poziomej.

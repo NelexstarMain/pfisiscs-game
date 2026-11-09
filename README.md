@@ -16,6 +16,7 @@ npm run build    # wersja produkcyjna w dist/
 ## Co jest w środku
 - Dwa widoki tego samego obwodu: schemat (edytowalny) i świat wody. Oscyloskop pod spodem.
 - Elementy: bateria, zasilacz DC, źródło AC, masa, rezystor, żarówka, przełącznik, dioda, LED, bezpiecznik, kondensator (do masy), woltomierz.
+- Suwaki w panelu właściwości zmieniają opór, napięcie i bezpiecznik na żywo, bez restartu wody.
 - Przykłady w menu „Przykłady…": rezystor, dzielnik napięcia, żarówka z przełącznikiem, RC, LED, bezpiecznik, obwód równoległy, prąd zmienny.
 - Szczegóły techniczne i pomiary: `docs/M0-notes.md` (silnik), `docs/M1-notes.md` (kompilator i interfejs).
 
