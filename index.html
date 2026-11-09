@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Elektrownia wodna</title>
+    <link rel="stylesheet" href="/src/ui/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Elektrownia wodna</h1>
+      <span id="tempo" class="hint"></span>
+      <div class="group">
+        <button id="run" class="primary" title="Start / pauza (spacja)">⏸ Pauza</button>
+        <button id="restart" title="Zbuduj świat od nowa (reset wody)">↺ Od nowa</button>
+        <label>Prędkość
+          <select id="speed">
+            <option value="1">×1</option>
+            <option value="2" selected>×2</option>
+            <option value="4">×4</option>
+            <option value="8">×8</option>
+          </select>
+        </label>
+      </div>
+      <div class="group">
+        <button id="undo" title="Cofnij (Ctrl+Z)">↶</button>
+        <button id="redo" title="Ponów (Ctrl+Y)">↷</button>
+        <select id="examples"><option value="">Przykłady…</option></select>
+        <select id="challenges"><option value="">Zadania…</option></select>
+        <button id="save">Zapisz</button>
+        <button id="load">Wczytaj</button>
+      </div>
+      <div class="group">
+        <label>Kulki
+          <select id="density">
+            <option value="1">mało</option>
+            <option value="2">średnio</option>
+            <option value="3">dużo</option>
+            <option value="4">bardzo dużo</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="overlay" checked /> Linie V</label>
+        <select id="view">
+          <option value="both" selected>Schemat + woda</option>
+          <option value="schematic">Tylko schemat</option>
+          <option value="water">Tylko woda</option>
+        </select>
+      </div>
+    </header>
+    <main>
+      <aside id="palette"></aside>
+      <div id="center">
+        <section id="panes">
+          <div class="pane" id="pane-schematic"><canvas id="schematic"></canvas><span class="tag">Schemat</span></div>
+          <div class="pane" id="pane-water"><canvas id="water"></canvas><span class="tag">Świat wody</span></div>
+        </section>
+        <section id="scope-wrap"><canvas id="scope"></canvas><span class="tag">Oscyloskop: napięcia węzłów [V]</span></section>
+      </div>
+      <aside id="props">
+        <div id="task"></div>
+        <h2 id="props-title">Właściwości</h2>
+        <div id="props-body"><p class="hint">Zaznacz element, aby zmienić jego wartość.</p></div>
+        <h3>Pomoc</h3>
+        <ul class="hint">
+          <li>Element z palety: kliknij, potem kliknij na schemacie (Shift = kilka).</li>
+          <li>Przewód: kliknij port, potem drugi port.</li>
+          <li><kbd>R</kbd> obrót, <kbd>Del</kbd> usuń, <kbd>Esc</kbd> anuluj.</li>
+          <li>Przełącznik: dwuklik albo przycisk w panelu.</li>
+          <li>Prawy przycisk myszy: przesuwanie widoku.</li>
+        </ul>
+        <div id="status"></div>
+      </aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

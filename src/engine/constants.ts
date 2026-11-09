@@ -16,7 +16,7 @@ export const PARAMS = {
   /** lepkość XSPH */
   xsph: 0.04,
   /** maks. cząstek na sąsiedztwo */
-  maxNeighbors: 64,
+  maxNeighbors: 40,
 } as const;
 
 /** Skala jednostek elektrycznych (do potwierdzenia w M0). */
