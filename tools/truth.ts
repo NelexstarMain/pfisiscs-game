@@ -6,9 +6,9 @@ const add = (t: any, v?: number) => { const c = d.makeAdd(t, { x: x += 4, y: 0 }
 const w = (a: string, b: string) => d.apply(d.makeWire(a, b));
 const s = add('supply', 9), r = add('resistor', R), g = add('ground');
 w(`${s}:1`, `${r}:0`); w(`${r}:1`, `${g}:0`); w(`${s}:0`, `${g}:0`);
-const world = compile(d); const plus = 'c1:1';
+const world = compile(d, { k: Number(process.env.K ?? 1) }); const plus = 'c1:1';
 for (let k = 0; k < 240 * 14; k++) world.step();
-const T = 20, N = 240 * T; let v = 0, i = 0; const m0 = world.netMoves;
+const T = 20, N = 240 * T; const KK = Number(process.env.K ?? 1); let v = 0, i = 0; const m0 = world.netMoves;
 for (let k = 0; k < N; k++) { world.step(); v += world.voltage(plus) / N; i += world.current(r) / N; }
-const truth = (world.netMoves - m0) / T / 50;
+const truth = (world.netMoves - m0) / T / (50 * KK);
 console.log(`R=${R}: V=${v.toFixed(2)} zone=${(i*1000).toFixed(0)}mA truth(servo net)=${(truth*1000).toFixed(0)}mA V/R=${(v/R*1000).toFixed(0)}mA  zone/truth=${(i/truth).toFixed(2)} truth/(V/R)=${(truth/(v/R)).toFixed(2)}`);

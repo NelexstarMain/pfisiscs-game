@@ -17,6 +17,7 @@ export interface DcCond {
 }
 
 export interface DcSource {
+  id?: string;
   type: 'battery' | 'supply' | 'ac';
   plus: string;
   volts: number;

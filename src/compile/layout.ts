@@ -106,7 +106,7 @@ export function buildLayout(inp: LayoutInput): Layout {
     // szyby odsunięte o 3 komórki od ścian, żeby ścianka przy rurach bocznych miała ≥ 2
     const w = Math.max(inp.width.get(net) ?? 6 * k, m > 0 ? PITCH * m + 4 : 0, 6);
     xs.push({ x0: x, x1: x + w });
-    const gapW = i < n - 1 ? (lanes[i] > 0 ? 14 + PITCH * lanes[i] : 8) : 8;
+    const gapW = i < n - 1 ? (lanes[i] > 0 ? 24 + PITCH * lanes[i] : 8) : 8;
     x += w + gapW;
   }
   const bx0 = x;

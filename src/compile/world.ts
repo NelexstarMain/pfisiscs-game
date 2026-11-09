@@ -5,7 +5,7 @@ import { Sim } from '../engine/pbf';
 import type { Doc } from '../model/doc';
 import { computeNets } from '../model/nets';
 import { calFor, gammaForResistance, SHAFT_G_FACTOR, ZONE_FLOW_BIAS, type Cal } from './calibration';
-import { dcWindows, type DcCond } from './dc';
+import { dcWindows, solveNominal, type DcCond, type DcInput } from './dc';
 import { buildLayout, type Layout, type Rect, type Vessel } from './layout';
 import { cavityOutline, type Seg } from './outline';
 
@@ -101,7 +101,9 @@ export class World {
   /** przepalone bezpieczniki */
   blown = new Set<string>();
   /** zakresy napięć z solvera DC (do sprawdzania, czy węzeł mieści się w oknie naczynia) */
-  windows = new Map<string, { nom: number; lo: number; hi: number }>();
+  windows = new Map<string, { nom: number; init: number; lo: number; hi: number }>();
+  /** wejście solvera DC z aktualnymi wartościami (do sprawdzania okien po zmianie wartości w locie) */
+  dcInput: DcInput | null = null;
 
   /** napięcie sieci względem masy [V] */
   voltage(net: string): number {
@@ -189,24 +191,35 @@ export class World {
    */
   setValue(id: string, value: number): boolean {
     const c = this.conds.find((x) => x.id === id);
+    const src = this.sources.find((x) => x.id === id);
+    if (!(c && ['resistor', 'bulb', 'diode', 'led', 'fuse'].includes(c.type)) && !(src && src.type !== 'battery')) return false;
+    // czy po zmianie wszystkie węzły nadal mieszczą się w oknach naczyń? Jeśli nie, trzeba przebudować świat.
+    if (this.dcInput) {
+      const dc = this.dcInput;
+      const dcc = dc.conds.find((x) => x.id === id);
+      if (dcc) dcc.value = value;
+      const dcs = dc.sources.find((x) => x.id === id);
+      if (dcs) dcs.volts = value;
+      const v = solveNominal(dc);
+      for (const [net, x] of v) {
+        const w = this.windows.get(net);
+        if (w && (x < w.lo - 0.75 || x > w.hi + 2.5)) return false;
+      }
+    }
     if (c && (c.type === 'resistor' || c.type === 'bulb')) {
       const gamma = gammaForResistance(c.kind === 'shaft' ? value * SHAFT_G_FACTOR : value);
       const z = c.zone;
       this.sim.grid.setGamma(z.x0, z.y0, z.x1, z.y1, gamma);
       return true;
     }
-    if (c && (c.type === 'diode' || c.type === 'led' || c.type === 'fuse')) {
+    if (c) {
       const d = this.dyn.get(id);
       if (d) d.thr = value;
       if (c.type === 'fuse') this.resetFuse(id); // zmiana wartości = wymiana bezpiecznika
       return true;
     }
-    const src = this.sources.find((x) => x.id === id);
-    if (src && src.type !== 'battery') {
-      src.volts = value;
-      return true;
-    }
-    return false;
+    src!.volts = value;
+    return true;
   }
 
   /** wymiana przepalonego bezpiecznika */
@@ -312,9 +325,9 @@ export class World {
 
 /** szerokość wnętrza naczynia (komórki) dla skali k */
 function baseWidth(k: number, role: 'node' | 'supply' | 'battery'): number {
-  if (role === 'battery') return 8 * k;
-  if (role === 'supply') return 6 * k;
-  return 6 * k;
+  if (role === 'battery') return 10 * k;
+  if (role === 'supply') return 8 * k;
+  return 8 * k;
 }
 
 export interface CompileOptions {
@@ -445,12 +458,13 @@ export function compile(doc: Doc, opts: CompileOptions = {}): World {
     const b = netOf(c.id, 1);
     if (a !== b && (a === gnd || b === gnd)) dcConds.push({ id: c.id, type: 'capacitor', a, b, value: c.value });
   }
-  const windows = dcWindows({
+  const dcInput: DcInput = {
     nets: [gnd, ...order],
     gnd,
     conds: dcConds,
-    sources: sources.map((s) => ({ type: s.type, plus: s.plus, volts: s.volts })),
-  });
+    sources: sources.map((s) => ({ id: s.id, type: s.type, plus: s.plus, volts: s.volts })),
+  };
+  const windows = dcWindows(dcInput);
 
   // szerokości naczyń: baza zależna od roli plus pojemność kondensatorów do masy
   const width = new Map<string, number>();
@@ -467,7 +481,7 @@ export function compile(doc: Doc, opts: CompileOptions = {}): World {
     width,
     slots: slotConds.map((c) => ({ id: c.id, netA: c.netA, netB: c.netB })),
     shafts: gndConds.map((c) => ({ id: c.id, net: c.netA === gnd ? c.netB : c.netA })),
-    basinWidth: 14 * k,
+    basinWidth: 18 * k,
   });
 
   // siatka: wszystko ściana, wycięte jamy (naczynia, rury, magistrala, basen) i kieszenie powietrza
@@ -543,6 +557,7 @@ export function compile(doc: Doc, opts: CompileOptions = {}): World {
   w.W = layout.W;
   w.H = layout.H;
   w.windows = windows;
+  w.dcInput = dcInput;
   w.outline = cavityOutline(mask, layout.W, layout.H);
   const toTank = (v: Vessel): TankInfo => ({ net: v.net, rect: v.rect, floorY: v.floorY, rimY: v.rimY, nomY: v.nomY });
   for (const v of layout.vessels) w.tanks.set(v.net, toTank(v));

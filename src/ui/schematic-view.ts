@@ -1,5 +1,5 @@
 import { DEFS, type ComponentType } from '../components/defs';
-import type { World } from '../compile/world';
+import type { WorldView } from '../sim/view';
 import type { Doc } from '../model/doc';
 import { computeNets, type NetList } from '../model/nets';
 import { portComp, portIndex, portKey, type Component, type PortKey, type Vec } from '../model/types';
@@ -20,7 +20,7 @@ export class SchematicView {
   selected: string | null = null;
   /** typ elementu do postawienia (tryb stawiania z palety) */
   placing: ComponentType | null = null;
-  world: World | null = null;
+  world: WorldView | null = null;
   vmax = 9;
   private nets: NetList;
   private mouse: Vec = { x: 0, y: 0 };

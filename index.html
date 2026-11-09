@@ -9,6 +9,7 @@
   <body>
     <header>
       <h1>Elektrownia wodna</h1>
+      <span id="tempo" class="hint"></span>
       <div class="group">
         <button id="run" class="primary" title="Start / pauza (spacja)">⏸ Pauza</button>
         <button id="restart" title="Zbuduj świat od nowa (reset wody)">↺ Od nowa</button>
@@ -30,7 +31,15 @@
         <button id="load">Wczytaj</button>
       </div>
       <div class="group">
-        <label><input type="checkbox" id="overlay" checked /> Pole potencjału</label>
+        <label>Kulki
+          <select id="density">
+            <option value="1">mało</option>
+            <option value="2">średnio</option>
+            <option value="3">dużo</option>
+            <option value="4">bardzo dużo</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="overlay" checked /> Linie V</label>
         <select id="view">
           <option value="both" selected>Schemat + woda</option>
           <option value="schematic">Tylko schemat</option>

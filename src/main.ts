@@ -1,9 +1,10 @@
 import { ALL_TYPES, DEFS, type ComponentType } from './components/defs';
-import { compile, CompileError, type World } from './compile/world';
 import { CHALLENGES, type Challenge } from './challenges';
 import { EXAMPLES } from './examples';
 import { Doc } from './model/doc';
 import { computeNets } from './model/nets';
+import { SimClient } from './sim/client';
+import type { WorldView } from './sim/view';
 import { Scope } from './ui/scope';
 import { SchematicView } from './ui/schematic-view';
 import { WaterView, type NetLabels } from './ui/water-view';
@@ -23,7 +24,17 @@ const water = new WaterView($<HTMLCanvasElement>('water'));
 const scope = new Scope($<HTMLCanvasElement>('scope'));
 let scopeNets: string[] = [];
 
-let world: World | null = null;
+// gęstość kulek: komórek na wolt (1 lekki, 2 średni, 3 gęsty); preset w ustawieniach dojdzie z workerem
+// domyślnie ok. 4000 kulek (k=4) na komputerze, lżej na wąskim ekranie (telefon)
+let density = window.innerWidth < 700 ? 2 : 4;
+try {
+  const saved = Number(localStorage.getItem('pfisiscs-k'));
+  if (saved >= 1 && saved <= 4) density = saved;
+} catch {
+  /* brak dostępu do localStorage */
+}
+const client = new SimClient();
+let world: WorldView | null = null;
 let running = true;
 let speed = 2;
 let rebuildTimer = 0;
@@ -155,29 +166,41 @@ function labelsFor(): NetLabels {
 }
 
 function rebuild() {
-  try {
-    world = compile(doc);
-    water.message = '';
-    const volts = [...doc.components.values()].filter((c) => c.type === 'supply' || c.type === 'battery' || c.type === 'ac').map((c) => c.value);
-    water.vmax = schematic.vmax = Math.max(5, ...volts);
-  } catch (e) {
-    world = null;
-    water.message = e instanceof CompileError ? e.message.replace('. ', '.\n') : `Błąd: ${(e as Error).message}`;
-  }
-  water.world = world;
-  schematic.world = world;
+  // do czasu zbudowania świata pokazujemy komunikat (budowa odbywa się w workerze)
+  world = null;
+  water.world = null;
+  schematic.world = null;
+  water.message = 'Buduję świat…';
+  water.labels = labelsFor();
+  scopeNets = [];
+  client.build(doc.toJSON(), density);
+}
+client.onBuilt = () => {
+  world = client;
+  water.world = client;
+  schematic.world = client;
+  water.message = '';
+  const volts = [...doc.components.values()].filter((c) => c.type === 'supply' || c.type === 'battery' || c.type === 'ac').map((c) => c.value);
+  water.vmax = schematic.vmax = Math.max(5, ...volts);
   water.labels = labelsFor();
   scope.reset();
   resetTask();
-  scopeNets = [];
-  const wd = world;
-  if (wd) {
-    const nl = computeNets(doc);
-    const probed = [...doc.components.values()].filter((c) => c.type === 'voltmeter').map((c) => nl.netOf.get(`${c.id}:0`)!);
-    const pool = probed.length ? probed : [...wd.tanks.keys()].filter((n) => n !== wd.gnd.net);
-    scopeNets = [...new Set(pool)].filter((n) => wd.tanks.has(n)).slice(0, 5);
-  }
-}
+  const nl = computeNets(doc);
+  const probed = [...doc.components.values()].filter((c) => c.type === 'voltmeter').map((c) => nl.netOf.get(`${c.id}:0`)!);
+  const pool = probed.length ? probed : [...client.tanks.keys()].filter((n) => n !== client.gnd.net);
+  scopeNets = [...new Set(pool)].filter((n) => client.tanks.has(n)).slice(0, 5);
+  client.run(running, speed);
+};
+client.onError = (message) => {
+  world = null;
+  water.world = null;
+  schematic.world = null;
+  water.message = message.replace('. ', '.\n');
+  water.labels = labelsFor();
+  scope.reset();
+  resetTask();
+};
+client.onNeedRebuild = () => scheduleRebuild();
 function scheduleRebuild() {
   window.clearTimeout(rebuildTimer);
   rebuildTimer = window.setTimeout(rebuild, 120);
@@ -287,9 +310,13 @@ const runBtn = $<HTMLButtonElement>('run');
 runBtn.addEventListener('click', () => {
   running = !running;
   runBtn.textContent = running ? '⏸ Pauza' : '▶ Start';
+  client.run(running, speed);
 });
 $('restart').addEventListener('click', rebuild);
-$<HTMLSelectElement>('speed').addEventListener('change', (e) => (speed = Number((e.target as HTMLSelectElement).value)));
+$<HTMLSelectElement>('speed').addEventListener('change', (e) => {
+  speed = Number((e.target as HTMLSelectElement).value);
+  client.run(running, speed);
+});
 $('undo').addEventListener('click', () => doc.undo());
 $('redo').addEventListener('click', () => doc.redo());
 $<HTMLInputElement>('overlay').addEventListener('change', (e) => (water.overlay = (e.target as HTMLInputElement).checked));
@@ -378,25 +405,41 @@ const baseLayout = layout;
 window.addEventListener('resize', layoutScope);
 void baseLayout;
 
+const densSel = $<HTMLSelectElement>('density');
+densSel.value = String(density);
+densSel.addEventListener('change', () => {
+  density = Number(densSel.value);
+  try {
+    localStorage.setItem('pfisiscs-k', String(density));
+  } catch {
+    /* brak dostępu do localStorage */
+  }
+  rebuild();
+});
+function updateHud() {
+  const el = $('tempo');
+  if (!world || !client.ready) {
+    el.textContent = '';
+    return;
+  }
+  const t = client.tempo;
+  el.textContent = `${client.nFluid} kulek · tempo ${t.toFixed(2)}×${t > 0 && t < 0.5 && speed <= 1 ? ' (zwolnij gęstość)' : ''}`;
+  el.style.color = t > 0 && t < 0.5 && speed <= 1 ? '#ffb347' : '';
+}
+
 let last = performance.now();
 let frame = 0;
 function loop(now: number) {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
-  if (running && world) {
-    const t0 = performance.now();
-    const n = Math.round(4 * speed);
-    for (let k = 0; k < n; k++) {
-      world.step();
-      scope.push(world, scopeNets);
-      if (performance.now() - t0 > 14) break; // budżet czasu klatki
-    }
-  }
+  if (!client.usesWorker) client.tickInline(dt); // tryb awaryjny bez Web Workera
+  if (world) scope.push(world, scopeNets);
   if (!$('pane-schematic').style.display) schematic.draw(dt);
   if (!$('pane-water').style.display) water.draw();
   tickTask();
   if (world) scope.draw(water.vmax, water.labels.net, scopeNets);
   if (++frame % 10 === 0) updateMeasurements();
+  if (frame % 20 === 0) updateHud();
   requestAnimationFrame(loop);
 }
 
@@ -413,4 +456,4 @@ rebuild();
 layout();
 layoutScope();
 requestAnimationFrame(loop);
-(window as unknown as { __app: unknown }).__app = { doc, get world() { return world; }, schematic, water };
+(window as unknown as { __app: unknown }).__app = { doc, get world() { return world; }, schematic, water, client };

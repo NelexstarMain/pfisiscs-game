@@ -1,4 +1,4 @@
-import type { World } from '../compile/world';
+import type { WorldView } from '../sim/view';
 import { COLORS } from './colors';
 
 const PALETTE = ['#ffd36b', '#7ee0a5', '#ff8fa3', '#8fc8ff', '#d9a6ff'];
@@ -35,7 +35,7 @@ export class Scope {
   }
 
   /** zapisuje próbkę co 0,1 s czasu symulacji */
-  push(world: World, nets: string[]): void {
+  push(world: WorldView, nets: string[]): void {
     if (world.time - this.lastT < 0.1) return;
     this.lastT = world.time;
     this.t.push(world.time);

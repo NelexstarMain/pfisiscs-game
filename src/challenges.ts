@@ -1,11 +1,11 @@
-import type { World } from './compile/world';
+import type { WorldView } from './sim/view';
 import { make } from './examples';
 import type { Doc } from './model/doc';
 import { computeNets } from './model/nets';
 import type { DocData } from './model/types';
 
 export interface Ctx {
-  world: World;
+  world: WorldView;
   doc: Doc;
   /** czas symulacji od początku zadania [s] */
   time: number;
