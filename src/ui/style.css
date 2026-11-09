@@ -12,7 +12,8 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); 
 body { display: flex; flex-direction: column; }
 header { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line); }
 h1 { font-size: 16px; margin: 0 8px 0 0; color: var(--water); letter-spacing: .3px; }
-.group { display: flex; gap: 6px; align-items: center; }
+.group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+header select { max-width: 100%; min-width: 0; }
 button, select { background: #1f2d3b; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; font: inherit; cursor: pointer; }
 button:hover, select:hover { border-color: #3a5169; }
 button.primary { background: #20528a; border-color: #2d6fb5; }
@@ -41,7 +42,19 @@ kbd { background: #1f2d3b; border: 1px solid var(--line); border-radius: 4px; pa
 #status { margin-top: 14px; font-size: 12px; color: var(--accent); min-height: 18px; }
 .kv { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); margin: 3px 0; }
 .kv b { color: var(--ink); font-weight: 600; }
-@media (max-width: 900px) { main { grid-template-columns: 1fr; } aside { display: none; } }
+@media (max-width: 900px) {
+  main { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; }
+  main > * { min-width: 0; }
+  #palette { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px 10px; }
+  #palette button { white-space: nowrap; flex: none; }
+  #props { border-left: 0; border-top: 1px solid var(--line); max-height: 32vh; }
+  #props .hint, #props h3 { display: none; }
+  #panes { flex-direction: column; }
+  .pane { border-right: 0; border-bottom: 1px solid var(--line); }
+  #scope-wrap { height: 90px; }
+  header { padding-inline: max(16px, env(safe-area-inset-left, 0px)); }
+}
+:root { color-scheme: dark; }
 
 #props input[type="range"] { width: 100%; margin: 8px 0 2px; accent-color: var(--water); }
 

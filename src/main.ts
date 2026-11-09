@@ -315,7 +315,7 @@ $('save').addEventListener('click', () => {
   } catch {
     /* brak dostępu do localStorage */
   }
-  setStatus('Zapisano plik obwod.json');
+  setStatus('Zapisano w przeglądarce (wróci po odświeżeniu). Plik obwod.json pobierze się, jeśli przeglądarka pozwala.');
 });
 $('load').addEventListener('click', () => {
   const inp = document.createElement('input');

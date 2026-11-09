@@ -11,6 +11,7 @@ npm install
 npm run dev      # gra w przeglądarce
 npm test         # testy fizyki i kompilatora
 npm run build    # wersja produkcyjna w dist/
+node tools/single-file.mjs gra.html   # po buildzie: cała gra w jednym pliku HTML
 ```
 
 ## Co jest w środku
