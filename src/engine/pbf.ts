@@ -22,6 +22,10 @@ export class Sim {
   /** parametry do strojenia (domyślnie z PARAMS) */
   tune = { iterations: PARAMS.iterations as number, epsilon: PARAMS.epsilon as number, scorrK: PARAMS.scorrK as number, xsph: PARAMS.xsph as number };
   readonly nB: number;
+  /** strefy z narzuconą prędkością x (FlowZone): cząstki w strefie nie reagują na ciśnienie w osi x */
+  forced: { x0: number; y0: number; x1: number; y1: number; v: number }[] = [];
+  /** ściana bez tarcia stycznego (eksperyment: nie zmienia wyniku dzielnika, domyślnie wyłączone) */
+  freeSlip = false;
   n: number;
   /** gęstość spoczynkowa policzona z idealnej siatki */
   readonly rho0: number;
@@ -139,6 +143,14 @@ export class Sim {
     }
   }
 
+  private zoneOf(x: number, y: number): number {
+    for (let z = 0; z < this.forced.length; z++) {
+      const f = this.forced[z];
+      if (x >= f.x0 && x < f.x1 && y >= f.y0 && y < f.y1) return z;
+    }
+    return -1;
+  }
+
   /** wypycha cząstkę z komórek-ścian */
   private collide(i: number): void {
     const gr = this.grid;
@@ -193,6 +205,10 @@ export class Sim {
         vx[i] *= f;
         vy[i] *= f;
       }
+      if (this.forced.length) {
+        const z = this.zoneOf(px[i], py[i]);
+        if (z >= 0) vx[i] = this.forced[z].v;
+      }
       qx[i] = px[i] + vx[i] * dt;
       qy[i] = py[i] + vy[i] * dt;
       this.collide(i);
@@ -233,6 +249,11 @@ export class Sim {
       for (let i = nB; i < n; i++) {
         let sx = 0;
         let sy = 0;
+        // wkład ściany (cząstek brzegowych) i normalna ściany
+        let bx = 0;
+        let by = 0;
+        let nxw = 0;
+        let nyw = 0;
         const base = i * maxNeighbors;
         const li = lambda[i];
         for (let s = 0; s < nn[i]; s++) {
@@ -241,20 +262,47 @@ export class Sim {
           const ddy = qy[i] - qy[j];
           const r2 = ddx * ddx + ddy * ddy;
           const r = Math.sqrt(r2) + 1e-9;
-          const lj = j < nB ? li : lambda[j];
+          const wall = j < nB;
+          const lj = wall ? li : lambda[j];
           const wr = poly6(r2) / W_DQ;
           const sc = -scorrK * wr * wr * wr * wr;
           const gm = (SPIKY * (h - r) * (h - r)) / r;
           const k = (li + lj + sc) * gm;
-          sx += k * ddx;
-          sy += k * ddy;
+          if (wall && this.freeSlip) {
+            bx += k * ddx;
+            by += k * ddy;
+            const w = poly6(r2);
+            nxw += ddx * w;
+            nyw += ddy * w;
+          } else {
+            sx += k * ddx;
+            sy += k * ddy;
+          }
+        }
+        if (bx !== 0 || by !== 0) {
+          // ściana swobodnego poślizgu: tylko składowa wzdłuż normalnej
+          const nl = Math.hypot(nxw, nyw);
+          if (nl > 1e-9) {
+            const ux = nxw / nl;
+            const uy = nyw / nl;
+            const proj = bx * ux + by * uy;
+            sx += proj * ux;
+            sy += proj * uy;
+          } else {
+            sx += bx;
+            sy += by;
+          }
         }
         dx[i] = sx / rho0;
         dy[i] = sy / rho0;
       }
       for (let i = nB; i < n; i++) {
-        qx[i] += dx[i];
-        qy[i] += dy[i];
+        if (this.forced.length && this.zoneOf(px[i], py[i]) >= 0) {
+          qy[i] += dy[i];
+        } else {
+          qx[i] += dx[i];
+          qy[i] += dy[i];
+        }
         this.collide(i);
       }
     }

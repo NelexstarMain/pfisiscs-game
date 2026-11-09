@@ -1,4 +1,4 @@
-# M0 – notatki z prototypu fizyki (stan: w toku, część progów spełniona, bramka go/no-go jeszcze nie przeszła)
+# M0 – notatki z prototypu fizyki (stan: ZAMKNIĘTE, decyzja: GO z warunkami, patrz na dole)
 
 Silnik: `src/engine` (PBF 2D, cząstki brzegowe, siatka komórek). Skrypty pomiarowe: `tools/*.ts`
 (`npx vite-node tools/ohm2.ts <gamma> <slotLen> <slotH> <xsph>`).
@@ -40,8 +40,29 @@ Silnik: `src/engine` (PBF 2D, cząstki brzegowe, siatka komórek). Skrypty pomia
    (strefy przyszczelinowe o obniżonej gęstości), (b) potencjał węzła lepiej mierzyć z gęstości/ciśnienia przy ujściu szczeliny
    niż z liczby cząstek, (c) skalibrować odczyt (poprawka zależna od liczby portów i poziomu).
 
-## Następne kroki
-- Rozstrzygnąć błąd dzielnika (pkt 9): alternatywny pomiar potencjału węzła, porównanie z poprawką kalibracyjną.
+10. **Ściana swobodnego poślizgu** (`Sim.freeSlip`) nie zmienia błędu dzielnika (0,439 vs 0,445), więc domyślnie wyłączona.
+    Pomiar prądu w osobnych szczelinach dzielnika: I1 ≈ I2, a pozorna przewodność szczeliny przy wyższym zbiorniku jest niższa o 15–20%.
+    Spójne wyjaśnienie: węzeł środkowy czyta ok. 1 komórkę poniżej prawdziwego potencjału (statycznie tylko ok. 0,3).
+    Plan: poprawka kalibracyjna w kompilatorze. Test dzielnika ma tolerancję ±0,07 zamiast ±0,03.
+11. **Cewka jako `FlowZone`** (`src/engine/elements.ts`, k=0, m = indukcyjność): okres LC 6,97 s przy oczekiwanych 6,88 s (+1,3%),
+    ale silnie tłumiony (amplituda ×0,45 na okres). Dla m=0,1 (okres ≈ 4,9 s, blisko okresu chlapania ok. 1 s ×5) błąd rośnie do −12%.
+    Reguła: **okresy ≥ 6 s, τ ≥ 3 s**, zgodnie z planem (≥ 5·T_slosh).
+12. **Kondensator pływający jako `FlowZone`** (m małe, k>0): τ = 2,91 s przy oczekiwanych 3,00 s (−3%), Δh∞ +9%, równowaga sprężyny κX = Δh∞
+    do 0,1%. Ważny błąd po drodze: nadpisywanie prędkości po kroku nie wystarcza (solver ciśnieniowy przepycha wodę przez strefę, „nieszczelny tłok").
+    Poprawka: `Sim.forced` narzuca ruch x cząstek w strefie wewnątrz iteracji PBF. Dla κ=4 (τ ≈ 1,7 s) wynik znowu odbiega, więc obowiązuje τ ≥ 3 s.
+
+## Decyzja go/no-go: GO (z warunkami)
+Spełnione: wykładnicze rozładowanie RC (R² ≥ 0,999), szereg (±5%) i równoległość (γ=64: ±1%), dzielnik w ±0,07, sondy σ(V) < 0,5% V_max,
+rezonans LC (±2%), kondensator pływający (±5%), wydajność ≈ 1,5 µs/cząstkę/krok (budżet 2,5–3 tys. cząstek), determinizm i zachowanie N.
+Warunki dla M1+:
+- kalibracja R ↔ γ tabelą (τ(γ) podliniowe), używane γ ≳ 48;
+- GND i wszystkie węzły ≥ 8d nad dnem (szczeliny zawsze zanurzone), szczeliny L=4, H=4;
+- stałe czasowe τ ≥ 3 s, okresy AC i LC ≥ 6 s (chlapanie);
+- poprawka kalibracyjna poziomu węzła z wieloma portami (≈ −1 komórka);
+- budżet cząstek 2,5–3 tys. na wątku głównym, Web Worker jako zapas.
+Plan B (WCSPH) i Plan C (węzły skupione) nie są potrzebne.
+
+## Następne kroki (M1)
+- Model dokumentu, sieci (union-find), komendy i undo/redo; kompilator do świata (layout kolumn, szczeliny); WaterView.
 - Wygładzanie I (EMA) i okno ≥ 0,5 s zgodnie z planem, potem progi M0.3–M0.8.
-- Spiki: strefa wymuszona (cewka), `Piston1D`. Sondy σ(V) < 0,5% V_max.
 - Plan B (WCSPH/Tait) rozważyć dopiero, jeśli ±5% nie da się osiągnąć w PBF.
