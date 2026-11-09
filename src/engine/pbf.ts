@@ -23,7 +23,7 @@ export class Sim {
   tune = { iterations: PARAMS.iterations as number, epsilon: PARAMS.epsilon as number, scorrK: PARAMS.scorrK as number, xsph: PARAMS.xsph as number };
   readonly nB: number;
   /** strefy z narzuconą prędkością x (FlowZone): cząstki w strefie nie reagują na ciśnienie w osi x */
-  forced: { x0: number; y0: number; x1: number; y1: number; v: number }[] = [];
+  forced: { x0: number; y0: number; x1: number; y1: number; v: number; axis?: 'x' | 'y' }[] = [];
   /** opór strefy tłumi też przemieszczenie z korekcji ciśnienia (brak podłogi przecieku) */
   dragPressure = true;
   /** ściana bez tarcia stycznego (eksperyment: nie zmienia wyniku dzielnika, domyślnie wyłączone) */
@@ -214,7 +214,10 @@ export class Sim {
       vy[i] -= g * dt * fg;
       if (this.forced.length) {
         const z = this.zoneOf(px[i], py[i]);
-        if (z >= 0) vx[i] = this.forced[z].v;
+        if (z >= 0) {
+          if (this.forced[z].axis === 'y') vy[i] = this.forced[z].v;
+          else vx[i] = this.forced[z].v;
+        }
       }
       qx[i] = px[i] + vx[i] * dt;
       qy[i] = py[i] + vy[i] * dt;
@@ -307,8 +310,11 @@ export class Sim {
         // w strefie oporowej tłumimy też przemieszczenie z korekcji ciśnienia (inaczej opór ma „podłogę przecieku")
         const gam = grid.gamma[Math.min(grid.h - 1, Math.max(0, Math.floor(py[i]))) * gw + Math.min(grid.w - 1, Math.max(0, Math.floor(px[i])))];
         const fz = gam > 0 && this.dragPressure ? 1 / (1 + gam * dt) : 1;
-        if (this.forced.length && this.zoneOf(px[i], py[i]) >= 0) {
-          qy[i] += dy[i] * fz;
+        const fzn = this.forced.length ? this.zoneOf(px[i], py[i]) : -1;
+        if (fzn >= 0) {
+          // w strefie z narzuconą prędkością nie ruszamy osi przepływu
+          if (this.forced[fzn].axis === 'y') qx[i] += dx[i] * fz;
+          else qy[i] += dy[i] * fz;
         } else {
           qx[i] += dx[i] * fz;
           qy[i] += dy[i] * fz;

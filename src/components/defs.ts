@@ -11,6 +11,7 @@ export type ComponentType =
   | 'led'
   | 'fuse'
   | 'capacitor'
+  | 'inductor'
   | 'voltmeter';
 
 export interface ComponentDef {
@@ -124,7 +125,16 @@ export const DEFS: Record<ComponentType, ComponentDef> = {
     portNames: ['A', 'B'],
     defaultValue: 10,
     unit: 'µF',
-    water: 'Zbiornik: ładuje się wodą, im szerszy, tym większa pojemność.',
+    water: 'Zbiornik: ładuje się wodą, im szerszy, tym większa pojemność. Między dwoma węzłami to tłok ze sprężyną: przepuszcza zmiany, ale nie stały przepływ.',
+  },
+  inductor: {
+    type: 'inductor',
+    label: 'Cewka',
+    ports: 2,
+    portNames: ['A', 'B'],
+    defaultValue: 1,
+    unit: 'H',
+    water: 'Ciężkie koło wodne: trudno je rozkręcić i trudno zatrzymać, więc przepływ narasta i opada powoli.',
   },
   voltmeter: {
     type: 'voltmeter',

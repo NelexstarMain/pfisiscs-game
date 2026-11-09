@@ -33,6 +33,12 @@ Dioda, LED (próg napięcia, jasność od mocy) i bezpiecznik (pęka po ~0,6 s p
 Oscyloskop (`src/ui/scope.ts`) rysuje napięcia węzłów z woltomierzami (albo wszystkich węzłów) z ostatnich 30 s.
 Przykłady: dwie żarówki równolegle (dwa szyby do masy), prąd zmienny.
 
+## Cewka i kondensator pływający (w grze)
+Oba to `FlowZone` (src/engine/elements.ts): strefa z narzuconą prędkością, której przepływ I rządzi `m·dI/dt = Δh − k·X − c·I`.
+Cewka (k=0, masa ∝ indukcyjność) i kondensator między dwoma węzłami (małe m, sprężyna k, tłumienie c=2) działają na szczelinach
+(sąsiednie węzły) i szybach (do masy, oś pionowa). Kondensator do masy nadal jest po prostu szerszym zbiornikiem.
+Ograniczenie fizyczne: okresy ≥ 6 s i stałe czasowe ≥ 3 s, bo woda chlapie (patrz M0).
+
 ## Kalibracja (patrz `src/compile/calibration.ts`)
 Mierzone prawdziwym przepływem netto serwa (`tools/gsweep.ts`, `tools/truth.ts`): szyb G·γ ≈ 77, szczelina G·γ ≈ 88,
 estymator prądu w strefie zaniża o 8% (korekta ZONE_FLOW_BIAS). Zakres rezystorów 15…330 Ω (poniżej opór wlotu/wylotu zaburza wynik, zwłaszcza przy niskim napięciu).

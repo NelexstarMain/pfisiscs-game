@@ -14,6 +14,8 @@ export interface FlowZoneParams {
   k: number;
   /** tłumienie (rezystancja szeregowa) */
   c: number;
+  /** oś przepływu: 'x' (szczelina pozioma, domyślnie) albo 'y' (szyb, dodatni przepływ w dół) */
+  axis?: 'x' | 'y';
   /** wygładzanie pomiaru różnicy poziomów [s] */
   tauHead?: number;
   /** siła korekty anty-windup do zmierzonego przepływu [1/s] */
@@ -32,7 +34,7 @@ export class FlowZone {
   private headEma = 0;
   private primed = false;
   readonly hz: number;
-  private entry: { x0: number; y0: number; x1: number; y1: number; v: number };
+  private entry: { x0: number; y0: number; x1: number; y1: number; v: number; axis?: 'x' | 'y' };
 
   constructor(
     private sim: Sim,
@@ -40,15 +42,15 @@ export class FlowZone {
     private p: FlowZoneParams,
     private head: () => number,
   ) {
-    this.hz = rect.y1 - rect.y0;
-    this.entry = { ...rect, v: 0 };
+    this.hz = p.axis === 'y' ? rect.x1 - rect.x0 : rect.y1 - rect.y0;
+    this.entry = { ...rect, v: 0, axis: p.axis ?? 'x' };
     sim.forced.push(this.entry);
   }
 
   /** zmierzony przepływ (średnia objętościowa vx w strefie × wysokość) */
   measuredFlow(): number {
     const { sum, count } = this.sim.vxIn(this.rect.x0, this.rect.y0, this.rect.x1, this.rect.y1);
-    return count ? (sum / count) * this.hz : 0;
+    return this.p.axis === 'y' ? 0 : count ? (sum / count) * this.hz : 0;
   }
 
   /** wywołać po sim.step() */
@@ -65,6 +67,6 @@ export class FlowZone {
     this.X += (dt * this.I) / this.hz;
     const aw = this.p.antiWindup ?? 0;
     if (aw > 0) this.I += aw * (this.measuredFlow() - this.I) * dt;
-    this.entry.v = this.I / this.hz;
+    this.entry.v = (this.p.axis === 'y' ? -this.I : this.I) / this.hz;
   }
 }

@@ -345,6 +345,14 @@ export class SchematicView {
         ctx.fill();
         break;
       }
+      case 'inductor': {
+        line(0, 0, mid - 20, 0);
+        line(mid + 20, 0, L, 0);
+        ctx.beginPath();
+        for (let k = 0; k < 4; k++) ctx.arc(mid - 15 + k * 10, 0, 5, Math.PI, 0);
+        ctx.stroke();
+        break;
+      }
       case 'diode':
       case 'led': {
         line(0, 0, mid - 10, 0);
@@ -462,7 +470,7 @@ export class SchematicView {
       if (c.type === 'voltmeter') {
         const v = this.netVoltage(portKey(c.id, 0));
         txt = v === null ? '' : `${v.toFixed(2)} V`;
-      } else if (c.type === 'resistor' || c.type === 'bulb' || c.type === 'switch' || c.type === 'diode' || c.type === 'led' || c.type === 'fuse') {
+      } else if (c.type === 'resistor' || c.type === 'bulb' || c.type === 'switch' || c.type === 'diode' || c.type === 'led' || c.type === 'fuse' || c.type === 'inductor' || c.type === 'capacitor') {
         const i = this.world!.current(c.id);
         txt = `${(i * 1000).toFixed(0)} mA`;
       }
@@ -475,7 +483,7 @@ export class SchematicView {
     ctx.restore();
 
     // kropki przepływu prądu na elemencie 2-portowym
-    if (live && (c.type === 'resistor' || c.type === 'bulb' || c.type === 'switch' || c.type === 'diode' || c.type === 'led' || c.type === 'fuse')) {
+    if (live && (c.type === 'resistor' || c.type === 'bulb' || c.type === 'switch' || c.type === 'diode' || c.type === 'led' || c.type === 'fuse' || c.type === 'inductor' || (c.type === 'capacitor' && this.world!.flows.has(c.id)))) {
       const i = this.world!.current(c.id);
       if (Math.abs(i) > 0.003) {
         const a = portPos(c, 0);

@@ -1,4 +1,5 @@
 import { PARAMS } from '../engine/constants';
+import { FlowZone } from '../engine/elements';
 import { CellGrid } from '../engine/grid';
 import { Sim } from '../engine/pbf';
 import type { Doc } from '../model/doc';
@@ -24,10 +25,14 @@ const GAMMA_SWITCH_CLOSED = 8;
 const GAMMA_SWITCH_OPEN = 1e5;
 /** opór otwartego zaworu (dioda, LED, bezpiecznik) [Ω] */
 const R_VALVE = 12;
+/** masa FlowZone dla cewki 1 H (okres LC ≈ 2π·√(m·C) musi być ≥ 6 s) */
+const INDUCTOR_M = 0.25;
+/** pojemność tłoka kondensatora pływającego [komórki²/komórkę] na 1 µF */
+const CAP_CELLS_PER_UF = 0.3;
 /** okres źródła AC [s]; dłuższy niż 5·okres chlapania, patrz docs/M0-notes.md */
 export const AC_PERIOD = 10;
 
-type CondType = 'resistor' | 'bulb' | 'switch' | 'diode' | 'led' | 'fuse';
+type CondType = 'resistor' | 'bulb' | 'switch' | 'diode' | 'led' | 'fuse' | 'inductor' | 'capacitor';
 interface Cond {
   id: string;
   type: CondType;
@@ -91,6 +96,8 @@ export class World {
   sim!: Sim;
   columns: { net: string; x0: number; x1: number }[] = [];
   gaps: Gap[] = [];
+  /** strefy wymuszonego przepływu: cewki i kondensatory pływające */
+  flows = new Map<string, { z: FlowZone; sign: 1 | -1 }>();
   W = 0;
   H = 0;
   tanks = new Map<string, TankInfo>();
@@ -140,6 +147,7 @@ export class World {
   step(dt: number = PARAMS.dt): void {
     this.sim.step(dt);
     this.time += dt;
+    for (const f of this.flows.values()) f.z.step(dt);
     this.measure(dt);
     this.servo(dt);
     this.valves(dt);
@@ -218,6 +226,13 @@ export class World {
       e.push(v, dt, 0.1);
     }
     for (const c of this.conds) {
+      const fl = this.flows.get(c.id);
+      if (fl) {
+        let e = this.iEma.get(c.id);
+        if (!e) this.iEma.set(c.id, (e = new Ema()));
+        e.push((fl.sign * fl.z.I) / CAL.particlesPerAmpere, dt, 0.1);
+        continue;
+      }
       const z = c.zone;
       const { sum, count } = c.kind === 'slot' ? this.sim.vxIn(z.x0, z.y0, z.x1, z.y1) : this.vyIn(z);
       if (count < 3) continue;
@@ -314,7 +329,8 @@ export function compile(doc: Doc): World {
       case 'switch':
       case 'diode':
       case 'led':
-      case 'fuse': {
+      case 'fuse':
+      case 'inductor': {
         const a = netOf(c.id, 0);
         const b = netOf(c.id, 1);
         if (a === b) break; // zwarty sam ze sobą
@@ -337,7 +353,11 @@ export function compile(doc: Doc): World {
         const a = netOf(c.id, 0);
         const b = netOf(c.id, 1);
         if (a === b) break;
-        if (a !== gnd && b !== gnd) throw new CompileError('Kondensator między dwoma węzłami bez masy pojawi się w kolejnym etapie.');
+        if (a !== gnd && b !== gnd) {
+          conds.push({ id: c.id, type: 'capacitor', netA: a, netB: b });
+          used.add(a).add(b);
+          break;
+        }
         const other = a === gnd ? b : a;
         widthExtra.set(other, (widthExtra.get(other) ?? 0) + Math.max(2, c.value));
         used.add(other);
@@ -483,12 +503,16 @@ export function compile(doc: Doc): World {
     info.push({ id: c.id, type: c.type, netA: c.netA, netB: c.netB, zone, kind: 'slot', sign: ca < cb ? 1 : -1 });
   }
   // opór stref
+  const flowInit: { ci: CondInfo; value: number }[] = [];
   const dynInit: { id: string; type: 'diode' | 'led' | 'fuse'; gammaOn: number; thr: number }[] = [];
   for (const ci of info) {
     const comp = doc.components.get(ci.id)!;
     let gamma: number;
     if (ci.type === 'switch') gamma = comp.value >= 0.5 ? GAMMA_SWITCH_CLOSED : GAMMA_SWITCH_OPEN;
-    else if (ci.type === 'diode' || ci.type === 'led' || ci.type === 'fuse') {
+    else if (ci.type === 'inductor' || ci.type === 'capacitor') {
+      flowInit.push({ ci, value: comp.value });
+      gamma = 0;
+    } else if (ci.type === 'diode' || ci.type === 'led' || ci.type === 'fuse') {
       const on = gammaForResistance(ci.kind === 'shaft' ? R_VALVE * SHAFT_G_FACTOR : R_VALVE);
       dynInit.push({ id: ci.id, type: ci.type, gammaOn: on, thr: comp.value });
       gamma = 1e5;
@@ -529,6 +553,17 @@ export function compile(doc: Doc): World {
         : slotConds.some((c) => Math.min(col.get(c.netA)!, col.get(c.netB)!) === k),
     };
   });
+  for (const { ci, value } of flowInit) {
+    const hz = ci.kind === 'slot' ? ci.zone.y1 - ci.zone.y0 : ci.zone.x1 - ci.zone.x0;
+    const [netL, netR] =
+      ci.kind === 'slot' ? (ci.sign === 1 ? [ci.netA, ci.netB] : [ci.netB, ci.netA]) : [ci.netA === gnd ? ci.netB : ci.netA, gnd];
+    const head = () => w.rawLevel(w.tanks.get(netL)!) - w.rawLevel(w.tanks.get(netR)!);
+    const params =
+      ci.type === 'inductor'
+        ? { m: INDUCTOR_M * Math.max(0.05, value), k: 0, c: 0.05, axis: ci.kind === 'slot' ? ('x' as const) : ('y' as const) }
+        : { m: 0.02, k: hz / Math.max(0.5, value * CAP_CELLS_PER_UF), c: 2, axis: ci.kind === 'slot' ? ('x' as const) : ('y' as const) };
+    w.flows.set(ci.id, { z: new FlowZone(sim, ci.zone, params, head), sign: ci.sign });
+  }
   w.registerValves(dynInit);
   return w;
 }

@@ -30,7 +30,27 @@ function defaultOf(t: ComponentType): number {
   return DEFS[t].defaultValue;
 }
 
+const chain = (mid: ComponentType, srcType: ComponentType = 'supply', midValue?: number): DocData =>
+  make(
+    [
+      { type: srcType, x: 4, y: 6 },
+      { type: 'ground', x: 4, y: 10 },
+      { type: mid, x: 12, y: 6, value: midValue ?? defaultOf(mid) },
+      { type: 'resistor', x: 20, y: 6, value: 47 },
+      { type: 'ground', x: 24, y: 10 },
+    ],
+    [
+      [[0, 0], [1, 0]],
+      [[0, 1], [2, 0]],
+      [[2, 1], [3, 0]],
+      [[3, 1], [4, 0]],
+    ],
+  );
+
 export const EXAMPLES: Record<string, { label: string; data: DocData }> = {
+  rl: { label: 'Cewka: prąd rozkręca się powoli (RL)', data: chain('inductor') },
+  cblock: { label: 'Kondensator blokuje stały prąd', data: chain('capacitor') },
+  accap: { label: 'Kondensator przepuszcza prąd zmienny', data: chain('capacitor', 'ac') },
   parallel: {
     label: 'Dwie żarówki równolegle',
     data: make(
